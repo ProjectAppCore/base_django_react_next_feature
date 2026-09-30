@@ -117,11 +117,17 @@ Incorporate all changes systematically, one by one. Verify and test each.
 
 ### Step 6: Optimize
 
-Optimize the implemented code after all changes are tested and verified.
+Optimize the implemented code after all changes are tested and verified — la forma
+canónica es delegar en [[perf-pass]] **modo A** (requerimiento = lo implementado): declara el
+perfil de cómputo del host real, contrasta el camino de código nuevo contra
+`docs/PERFORMANCE_STANDARDS.md` y aplica cambios acotados en el MISMO worktree de la sesión
+(commit propio), dejando el guion `brief-perf` para `/qa`. Se sugiere siempre que el cambio
+agregó vistas, listados, serializers, tareas o páginas; sin camino de datos nuevo se declara
+`⏭️` en el cierre. Nunca se optimiza "a ojo" ni se toca la infra.
 
 ---
 
-After every implementation, ALWAYS do 2 things:
+After every implementation, ALWAYS do these things (c. sólo aplica con mapa de vistas):
 a. Update other possibly affected codes in `backend/` and `frontend/`
 b. Update the memory files afectados por el cambio — los 7 canónicos de
    [[methodology-setup]]: `docs/methodology/product_requirement_docs.md`,
@@ -129,13 +135,23 @@ b. Update the memory files afectados por el cambio — los 7 canónicos de
    `docs/methodology/error-documentation.md`,
    `docs/methodology/lessons-learned.md`, `tasks/tasks_plan.md` y
    `tasks/active_context.md` (este último siempre)
+c. Mapa de vistas — sólo si el repo tiene `frontend/config/viewCatalog.js` y la
+   skill [[view-map-update]] está instalada para este runtime (Claude:
+   `.claude/skills/view-map-update/`; Codex: `.agents/skills/view-map-update/`);
+   si no, saltear (fila `⏭️`). Correrla con `--apply --diff` en el worktree de
+   la sesión: nunca pregunta (la invoca este conductor, regla 4 de
+   [[_output-protocol]] §4) y no commitea — sus cambios viajan en el commit de
+   la sesión. Si la sesión ya la corrió sobre este mismo diff, citar ese
+   resultado en vez de repetirla.
 
 ---
 
 ## Cierre — QA de lo implementado
 
 Al terminar la implementación (feature funcionalmente completa), la forma
-canónica de cerrar la cobertura es invocar **[[qa]]**: audita el flow-map,
+canónica de cerrar la cobertura es invocar **[[qa]]** — precedido por [[perf-pass]] (modo A,
+aplica en el mismo worktree) cuando el cambio tocó listados, queries, serializers, tareas o
+bundles; `/qa` absorbe el guion `brief-perf` — : audita el flow-map,
 escribe los tests faltantes al DoD de 3 puntos (casos negativos incluidos),
 corre el gate y purga junk — sin mergear. Sugerilo siempre en el cierre. La
 sesión termina con PR abierto + CI verde (`/pr-green`); el merge NO es de
@@ -149,6 +165,7 @@ gating de [[_output-protocol]] §4), ofrecer vía AskUserQuestion:
 | Opción (label) | description (costo/efecto) | preview (comando exacto) |
 |---|---|---|
 | /qa (Recommended) | dry-run, no mergea; cierra la cobertura de lo implementado | `/qa` |
+| /perf-pass | modo A, antes de /qa cuando el cambio agregó listados, queries, serializers, tareas o páginas: presupuestos contra el host real y fixes acotados en el mismo worktree (commit propio) | `/perf-pass <requerimiento>` |
 | /git-commit | commit + push + PR (primer push) desde el worktree | `/git-commit` |
 | /pr-green | dejar el PR en verde, sin merge | `/pr-green` |
 
@@ -171,6 +188,7 @@ Reportar siguiendo [[_output-protocol]]. Plantilla específica de `/implement`:
 | Tests | ✅ | cobertura para lo nuevo + regresión existente preservada |
 | Verificación | ✅ | slice mínimo de verificación corrió y pasó |
 | Docs/memory | ✅ | docs/ y tasks/ actualizados si el cambio lo exige |
+| Mapa de vistas | ✅ | view-map-update --apply --diff al día (⏭️ si el repo no tiene mapa) |
 ```
 
 Si un test falla, la verificación no pasa, o queda algo sin verificar,

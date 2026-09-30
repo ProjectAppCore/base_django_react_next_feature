@@ -1,0 +1,7 @@
+interface:
+  display_name: "Maintainability Pass"
+  short_description: "Pasada de mantenibilidad de UN proyecto: complejidad..."
+  default_prompt: "Use $maintainability-pass to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

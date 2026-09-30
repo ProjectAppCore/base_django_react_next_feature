@@ -1,0 +1,7 @@
+interface:
+  display_name: "Where Are We"
+  short_description: "Usar cuando el operador vuelve a una sesión con trabajo en..."
+  default_prompt: "Use $where-are-we to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

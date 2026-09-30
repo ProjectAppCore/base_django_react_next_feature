@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release Context"
+  short_description: "Reconstruye el contexto de un release al retomar un proyecto..."
+  default_prompt: "Use $release-context to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

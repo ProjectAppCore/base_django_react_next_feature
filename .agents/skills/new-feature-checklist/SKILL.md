@@ -9,6 +9,10 @@ description: "Checklist for new features — ensures fake data creation follows 
 > conductor corre flow-map → cobertura (backend/unit/e2e) → gate → test-audit
 > como fases ordenadas con las guardas de producción ya cableadas (y salta
 > fake-data en prod solo). Esta checklist queda como la vía granular manual.
+>
+> **Rendimiento del requerimiento (paso 5):** antes de `$qa`, $perf-pass modo A declara el
+> perfil de cómputo del host y los presupuestos del camino nuevo, aplica lo acotado en el mismo
+> worktree y deja el guion `brief-perf`; `$qa` escribe los tests de presupuesto.
 
 ## Cómo invocar este skill
 
@@ -73,6 +77,51 @@ Per-test: `@flow:` + `@outcome:<success|error|failure|display>` tags (un spec si
 
 Update the flow registry if new user flows are created — o invocar $e2e-user-flows-check, que lo mantiene en el layout del repo (sharded: un JSON por flow + doc por flow, agregados regenerados con `generate_flow_registry.py`; monolito: `docs/USER_FLOW_MAP.md` + `frontend/e2e/flow-definitions.json`).
 
+## 4. MCP contract parity
+
+Only for projects that expose MCP connectors — skip this section entirely when
+the project has no MCP contract registry. If the changed model, serializer,
+service, lifecycle or relation belongs to a module listed in that registry (in
+projectapp, `backend/content/mcp/contracts.py`), the same delivery MUST:
+
+- classify every added or changed field as read-only, read/write, or
+  deliberately excluded with a concrete reason;
+- compare tool descriptions, input schemas, handlers, filters and response
+  payloads against the panel's current serializer/service contract;
+- preserve the shared token auth, actor attribution, audit and throttle pattern;
+- update the project's MCP validation runbook (in projectapp,
+  `docs/MCP_VALIDATION_RUNBOOK.md`) and run the focused MCP contract tests plus
+  the create/read/update/error cases.
+
+An unclassified model field, or a tool that advertises data it silently drops,
+is a failed checklist even when the ordinary panel tests are green.
+
+## 5. Presupuesto de rendimiento (perf-pass)
+
+Si la feature agregó vistas, listados, serializers, tareas o páginas, correr $perf-pass en
+modo A con el requerimiento como argumento (`$perf-pass <requerimiento>`): imprime el perfil
+de cómputo del host real, contrasta el camino nuevo contra `docs/PERFORMANCE_STANDARDS.md`
+(queries por request constantes, filas materializables, presupuesto de tarea, bundle) y aplica
+sólo cambios acotados dentro de LÍMITES en el mismo worktree. Su salida es el guion
+`brief-perf` que `$qa` convierte en tests de presupuesto (`CaptureQueriesContext`,
+`MAX_*_QUERIES`, `toHaveBeenCalledTimes`; nunca tiempo). Sin camino de datos nuevo: ⏭️.
+
+## 6. Paridad del Mapa de vistas
+
+Sólo para proyectos con Mapa de vistas — saltear esta sección entera si el repo
+no tiene `frontend/config/viewCatalog.js` o si la skill $view-map-update no
+está instalada para este runtime (en projectapp, `/panel/views`). Si la feature
+agregó, quitó, renombró o cambió de propósito una página, pestaña, modal o
+capacidad visible, la misma entrega DEBE correr $view-map-update con
+`--apply --diff` (nunca pregunta: hereda el gating de esta checklist), para que
+catálogo, Explorador, contratos acoplados y conteos fijados en tests y docs
+queden al día en el mismo PR. Si $implement o $qa ya la corrieron sobre
+este mismo diff, citar esa corrida en vez de repetirla.
+
+Una página nueva sin entrada, o una capacidad nueva que el Explorador no
+describe, es un checklist fallido aunque `npm run check:view-catalog` y los
+tests del panel estén verdes.
+
 ## Execution Order
 
 1. **First**: Run only the new tests → Must pass
@@ -104,6 +153,8 @@ Reportar siguiendo $output-protocol. Plantilla específica de
 | 2.b Frontend unit tests | ✅ | happy + edge + branches, selectores estables |
 | 2.c Frontend E2E tests | ✅ | @flow:<id> + @outcome:<clase>, real-user interactions, sin shortcuts |
 | 3 USER_FLOW_MAP.md | ✅ | nuevos flows registrados (si aplica) |
+| 4 Paridad MCP | ✅ | campos clasificados, tools/schemas/runbook al día — o n/a si el proyecto no expone MCP |
+| 6 Mapa de vistas | ✅ | catálogo + Explorador + conteos al día — o n/a si no hay mapa de vistas |
 | Suite no completa | ✅ | solo nuevos + regresión, batch ≤20, ciclos ≤3 |
 ```
 

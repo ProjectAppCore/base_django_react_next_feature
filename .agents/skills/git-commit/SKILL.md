@@ -244,9 +244,19 @@ Output rules:
 ## Phase 2 — Propagación del toolkit al fleet (ON por defecto)
 
 Esta fase sincroniza la copia de **`vps-ops-toolkit`** en los otros entornos del
-fleet (los otros VPS + la dev machine **si está prendida**) con el commit que
-acabás de pushear, vía Tailscale SSH. Corre el **core de `git-sync`** en cada
-host remoto (`git fetch` + `git rebase --autostash` sobre el upstream).
+fleet (los otros VPS + la dev machine **si está prendida**) con el SHA exacto
+que acabás de pushear, vía Tailscale SSH. Un host sólo avanza si está en
+`master`, limpio y su HEAD es ancestro del target; el cambio es `--ff-only`,
+sin `checkout`, `rebase`, `autostash` ni hooks Git. El resultado `SYNCED` se
+publica únicamente después de reconciliar además el user-level completo
+(incluidos `permissions+hooks`, preservando las keys runtime de Claude) y el
+runtime Codex/MCP ligado al lockfile exacto. El host desde el que corre también
+reconcilia esa generación, incluso si no hay peers online. Durante la migración
+one-shot de los runtimes MCP, `SYNCED` puede venir acompañado de
+`LEGACY_CLEANUP_PENDING strict=false quiet_week_ready=false`: Git y el runtime
+externo sí quedaron entregados, pero el exec-set todavía no es estricto y esa
+salida suma warning/exit 1. El propagador nunca borra los roots legacy desde una
+sesión activa.
 
 **Cuándo corre** — sólo si TODAS se cumplen:
 - El repo commiteado es **`vps-ops-toolkit`** (default con cwd en el toolkit, o
@@ -271,10 +281,15 @@ se revierte por una falla de propagación.
    git rev-parse --show-toplevel
    ```
    ```bash
-   bash ~/webapps/vps-ops-toolkit/scripts/maintenance/propagate-toolkit-commit.sh --apply
+   git rev-parse HEAD
+   ```
+   Copiá ese SHA completo como literal en el comando siguiente (sin
+   sustitución de shell):
+   ```bash
+   bash ~/webapps/vps-ops-toolkit/scripts/maintenance/propagate-toolkit-commit.sh --apply --target=<sha-completo>
    ```
    Si el toplevel es otro repo: `⏭️ Repo no-toolkit (<repo>) — sin propagación al
-   fleet.` y **no corras** el segundo comando.
+   fleet.` y **no corras** los comandos de SHA/propagación.
 2. **Si el exit code es `75`** (Tailscale pide autorización interactiva): el
    script ya imprimió un link `https://login.tailscale.com/...`. **Mostrale el
    link tal cual al operador**, pedile que lo abra y autorice con la cuenta del
@@ -286,10 +301,23 @@ se revierte por una falla de propagación.
      está caído. Es el flujo normal de auth de Tailscale (ver CLAUDE.md
      "Flujo de auth de Tailscale SSH").
 3. Reportá el resumen por host del script:
-   - `SYNCED <sha>` → host actualizado.
-   - `CONFLICT_NEEDS_MANUAL_SYNC` → ese host tiene divergencia real; quedó con su
-     working tree intacto (rebase abortado). Reportalo como host que requiere
-     `git-sync` manual; **no** bloquea el éxito del commit ya hecho.
+   - `SYNCED <sha-completo>` + `TOOLKIT_EXECSET_STRICT_CURRENT` → **generación
+     integral y exec-set estricto**: Git exacto, user-level y Codex/MCP listos.
+     Nunca significa solamente “HEAD avanzó”.
+   - `SYNCED <sha-completo>` + `LEGACY_CLEANUP_PENDING strict=false
+     quiet_week_ready=false` → Git/user-level/runtime externo entregados, pero
+     quedan los dos roots legacy físicos para no romper sesiones anteriores.
+     Clasificar como 🟡 `SYNCED_CLEANUP_PENDING`; el exit 1 es deliberado. No
+     iniciar quiet week ni instalar la generación root-owned hasta cerrar todas
+     las sesiones antiguas, ejecutar el cleanup explícito documentado por
+     `setup-runtime.sh` y repetir el check estricto.
+   - `SYNC_BLOCKED <causa>` → el host rechazó el avance (rama incorrecta,
+     tree sucio, target distinto o no-fast-forward); no hace checkout, rebase
+     ni autostash. Revisá el estado y corregí la causa explícitamente.
+   - `SYNC_ERROR <causa>` → una postcondición o la reconciliación
+     user-level/runtime falló. Puede que Git ya haya llegado al target, pero el
+     host **no** cuenta como sincronizado; corregí la causa y reintentá el mismo
+     comando exacto (el retry es idempotente y vuelve a validar todo).
    - `UNREACHABLE` → host inalcanzable (dev apagada, VPS caído); warning, seguí.
 
 En modo `--no-propagate`, omití esta fase por completo y decílo en el resumen.
@@ -332,10 +360,14 @@ Propagación del toolkit — una fila por host:
 
 | Host | Estado | Detalle |
 |---|---|---|
-| vps-projectapp-prod | ✅ | `SYNCED <sha>` |
-| vps-gym | ✅ | `SYNCED <sha>` |
+| vps-projectapp-prod | ✅ | `SYNCED <sha-completo>` + `TOOLKIT_EXECSET_STRICT_CURRENT` |
+| vps-gym | 🟡 | `SYNCED_CLEANUP_PENDING` — Git/runtime listos; quiet week bloqueada hasta cleanup |
 | dev | ⏭️ | `UNREACHABLE` (apagada) |
 
 ## Next steps
-- (host con `CONFLICT_NEEDS_MANUAL_SYNC`) correr `$git-sync` en ese host — divergencia real
+- (host con `SYNC_BLOCKED`) revisar rama/tree/ancestry; no se corrige con checkout o autostash automático
+- (host con `SYNC_ERROR`) corregir la postcondición indicada y reintentar el mismo `--target=<sha>`
+- (host con `SYNCED_CLEANUP_PENDING`) cerrar sesiones antiguas, ejecutar el
+  cleanup legacy confirmado desde una terminal independiente y repetir
+  `propagate-toolkit-commit.sh --check --target=<sha>` hasta obtener strict
 - (si el push quedó pendiente) resolver upstream/conflicto y `git push`

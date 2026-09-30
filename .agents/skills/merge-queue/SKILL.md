@@ -47,9 +47,9 @@ description: "Usar cuando VARIAS ramas/PRs pendientes (trabajo de N sesiones par
 > **Nunca force push:** `git push --force*` está denegado a nivel permisos del
 > fleet (cubre `--force-with-lease`), así que esta skill **no rebasea ramas
 > pusheadas jamás**. Una rama BEHIND se actualiza server-side
-> (`gh pr update-branch`); una CONFLICTING se pone al día mergeando
-> `origin/<base>` DENTRO de la rama — desde el **worktree de la queue, en
-> detached HEAD** (`git checkout --detach origin/<rama>` + merge + `git push
+> (`gh pr update-branch`); una CONFLICTING se pone al día mergeando el SHA
+> anunciado de `<base>` DENTRO de la rama — desde el **worktree de la queue, en
+> detached HEAD** (`git checkout --detach <sha-rama>` + merge + `git push
 > origin HEAD:refs/heads/<rama>`, fast-forward normal), porque la rama puede
 > estar checkouteada en el worktree de su sesión dueña y el checkout normal
 > fallaría. Con squash como merge method, esos merge commits intermedios
@@ -58,6 +58,9 @@ description: "Usar cuando VARIAS ramas/PRs pendientes (trabajo de N sesiones par
 > **El clon principal es intocable:** esta skill jamás hace checkout en
 > `~/webapps/<repo>` (en VPS es el tree del servicio corriendo). Toda mutación
 > de working tree ocurre en su worktree propio `~/webapps/.wt/<repo>/queue-<ts>`.
+> El alta/retiro de ese worktree sí escribe su ref `queue/*` y registro exacto
+> en el gitdir compartido; ese alcance `gitmeta` está inventariado como
+> `session-worktree` y no se disfraza como escritura exclusiva bajo `.wt/`.
 
 ## Cómo invocar este skill
 
@@ -201,7 +204,6 @@ if [ -f "$QDIR/lock" ] && [ -n "$(find "$QDIR/lock" -mmin -30 2>/dev/null)" ] \
 fi
 mkdir -p "$QDIR"; date -Is > "$QDIR/lock"
 
-git fetch --prune origin --quiet
 DEFAULT="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo master)"
 CURRENT="$(git rev-parse --abbrev-ref HEAD)"
 echo "=== $REPO_NAME | base=$DEFAULT | rama actual=$CURRENT ==="
@@ -235,19 +237,27 @@ echo "--- por rama local: ahead/behind + ya-en-base vs SU base de tier (merge-tr
 # (baseRefName del listado de arriba), la RELEASE si estamos en repo
 # participante, la default si no. El loop evalúa contra ambas cuando hay
 # RELEASE — la clasificación (abajo, en contexto) usa la que corresponda.
+DEFAULT_TIP=""
 for TB in "$DEFAULT" ${RELEASE:+"$RELEASE"}; do
-    git fetch origin "$TB" --quiet 2>/dev/null || true
-    BASE_TREE="$(git rev-parse "origin/${TB}^{tree}" 2>/dev/null || echo none)"
-    echo "· vs origin/${TB}:"
+    TIP_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$TB" 2>/dev/null || true)"
+    TIP="${TIP_LINE%%[[:space:]]*}"
+    if ! echo "$TIP" | grep -Eq '^[0-9a-fA-F]{40,64}$'; then
+        echo "  $TB: no evaluable (tip remoto inaccesible)"; continue
+    fi
+    git cat-file -e "${TIP}^{commit}" 2>/dev/null \
+      || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$TIP"
+    [ "$TB" = "$DEFAULT" ] && DEFAULT_TIP="$TIP"
+    BASE_TREE="$(git rev-parse "${TIP}^{tree}" 2>/dev/null || echo none)"
+    echo "· vs $TB@$TIP:"
     for BR in $(git for-each-ref refs/heads --format='%(refname:short)'); do
         [ "$BR" = "$TB" ] && continue
         case "$BR" in queue/*) continue ;; esac   # ramas de integración: jamás unidades
-        AHEAD="$(git rev-list --count "origin/${TB}..${BR}" 2>/dev/null || echo '?')"
-        BEHIND="$(git rev-list --count "${BR}..origin/${TB}" 2>/dev/null || echo '?')"
+        AHEAD="$(git rev-list --count "${TIP}..${BR}" 2>/dev/null || echo '?')"
+        BEHIND="$(git rev-list --count "${BR}..${TIP}" 2>/dev/null || echo '?')"
         # merge-tree es in-memory: evaluable aun con tree sucio (la restricción
         # "tree sucio ⇒ no evaluar" de merge-when-green aplica sólo a la rama
         # ACTUAL, cuyo trabajo sin commitear es de ella).
-        MT="$(git merge-tree --write-tree "origin/${TB}" "$BR" 2>/dev/null | head -1)"
+        MT="$(git merge-tree --write-tree "$TIP" "$BR" 2>/dev/null | head -1)"
         if [ -n "$MT" ] && [ "$MT" = "$BASE_TREE" ]; then
             echo "  $BR: YA-EN-BASE de $TB (mergearla sería no-op)"
         else
@@ -257,18 +267,21 @@ for TB in "$DEFAULT" ${RELEASE:+"$RELEASE"}; do
 done
 
 echo "--- ramas remotas sin rama local (trabajo pusheado desde otra máquina) ---"
-for RB in $(git for-each-ref refs/remotes/origin --format='%(refname:short)'); do
-    B="${RB#origin/}"
+if [ -n "$DEFAULT_TIP" ]; then
+  GIT_TERMINAL_PROMPT=0 git ls-remote --heads origin | while read -r REMOTE_SHA REMOTE_REF; do
+    B="${REMOTE_REF#refs/heads/}"
     case "$B" in "$DEFAULT"|HEAD|queue/*) continue ;; esac
     [ -n "${RELEASE:-}" ] && [ "$B" = "$RELEASE" ] && continue
     git show-ref --verify --quiet "refs/heads/$B" && continue
-    AHEAD="$(git rev-list --count "origin/${DEFAULT}..${RB}" 2>/dev/null || echo 0)"
-    [ "$AHEAD" != "0" ] && echo "remote-only $B: ahead=$AHEAD"
-done
+    git cat-file -e "${REMOTE_SHA}^{commit}" 2>/dev/null \
+      || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$REMOTE_SHA"
+    AHEAD="$(git rev-list --count "${DEFAULT_TIP}..${REMOTE_SHA}" 2>/dev/null || echo 0)"
+      [ "$AHEAD" != "0" ] && echo "remote-only $B: ahead=$AHEAD"
+  done
+fi
 
 echo "--- worktrees del repo (sesiones activas + huérfanos) ---"
 git worktree list --porcelain | sed -n 's/^worktree //p'
-git worktree prune 2>/dev/null || true
 ```
 
 **Clasificación (una clase por unidad de trabajo — rama o PR):**
@@ -300,15 +313,16 @@ re-verifican en vivo):
 ```bash
 cd "$(git rev-parse --show-toplevel)"; REPO_NAME="$(basename "$PWD")"
 QDIR="/tmp/merge-queue-${REPO_NAME}"; touch "$QDIR/lock"; mkdir -p "$QDIR/files"
-# <unidades>: las ramas ejecutables del censo. REF por unidad: origin/<rama> si el
-# remoto vive; la local si es local-only. BASE_U por unidad = su base de tier
+# <unidades>: las ramas ejecutables del censo. REF por unidad: el SHA remoto
+# capturado en Phase 1 si vive; la rama local si es local-only. BASE_U por unidad
+# = el SHA de su base de tier
 # (baseRefName del PR; la release para tier-1 en repos participantes; la default
 # si no). El diff va contra BASE_U — no siempre la default.
 # El filename del set de archivos usa base64 url-safe: el aplanado ingenuo
 # `${U//\//_}` colisionaba (`a/b` y `a_b` → mismo archivo).
 key() { printf '%s' "$1" | base64 | tr -d '=\n' | tr '/+' '_-'; }
 for U in <unidades>; do
-    git diff --name-only "origin/<BASE_U>...${U}" 2>/dev/null | sort > "$QDIR/files/$(key "$U")"
+    git diff --name-only "<BASE_SHA_U>...<UNIT_SHA_O_LOCAL>" 2>/dev/null | sort > "$QDIR/files/$(key "$U")"
 done
 for A in <unidades>; do for B in <unidades posteriores a A, mismo tier/base>; do
     N="$(comm -12 "$QDIR/files/$(key "$A")" "$QDIR/files/$(key "$B")" | wc -l)"
@@ -443,10 +457,13 @@ REPO_NAME="$(basename "$PWD")"; touch "/tmp/merge-queue-${REPO_NAME}/lock"
 BASE_T="<base del tier>"          # release (tier 1 participante) o default
 TS="$(date +%d%m%Y-%H%M)"
 WT="$HOME/webapps/.wt/${REPO_NAME}/queue-${TS}"
-git fetch origin "$BASE_T" --quiet
-git worktree add --detach "$WT" "origin/$BASE_T"
+BASE_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$BASE_T")"
+BASE_SHA="${BASE_LINE%%[[:space:]]*}"
+echo "$BASE_SHA" | grep -Eq '^[0-9a-fA-F]{40,64}$' || { echo "base remota ilegible"; exit 2; }
+git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+  || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$BASE_SHA"
+git worktree add --detach "$WT" "$BASE_SHA"
 cd "$WT"
-git config rerere.enabled true      # graba cada resolución — se replaya en 5.3
 git switch -c "queue/integration-$TS"
 ```
 
@@ -454,14 +471,19 @@ Después, **una unidad por vez, en el orden del tren** (solapamiento ascendente)
 
 ```bash
 cd "$WT"; RAMA="<unidad>"
-git fetch origin "$RAMA" --quiet 2>/dev/null || true
-git merge --no-edit "origin/$RAMA" || echo "CONFLICTO en la integración — ver reglas abajo"
+HEAD_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$RAMA")"
+HEAD_SHA="${HEAD_LINE%%[[:space:]]*}"
+echo "$HEAD_SHA" | grep -Eq '^[0-9a-fA-F]{40,64}$' || { echo "head remoto ilegible"; exit 2; }
+git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+  || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$HEAD_SHA"
+git -c rerere.enabled=true merge --no-edit "$HEAD_SHA" || echo "CONFLICTO en la integración — ver reglas abajo"
 ```
 
 - Conflicto **mecánico** (registros, lockfiles, archivos generados): resolvelo
   acá mismo (reglas de git-sync Phase 6: mostrar ambos lados, nunca a ciegas;
-  un archivo GENERADO se regenera con su generador, no se mergea a mano).
-  rerere graba la resolución para el replay de 5.3.
+  un archivo GENERADO se regenera con su generador, no se mergea a mano). Tras
+  stagear la resolución corré `git -c rerere.enabled=true rerere`: graba el
+  replay de 5.3 sin escribir `rerere.enabled` en el config del clon desplegado.
 - Conflicto **semántico** (lógica real de dos sesiones): **delegá a la sesión
   dueña** (sección «Delegación» abajo). Mientras llega su push, seguí
   integrando las unidades NO afectadas; la delegada se re-integra al volver o
@@ -505,7 +527,15 @@ Por cada PR del tren, en orden:
 
 ```bash
 cd "$WT"; PR=<n>; RAMA="<head>"; BASE_T="<base del tier>"
-git fetch origin "$BASE_T" "$RAMA" --quiet
+BASE_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$BASE_T")"
+HEAD_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$RAMA")"
+BASE_SHA="${BASE_LINE%%[[:space:]]*}"; HEAD_SHA="${HEAD_LINE%%[[:space:]]*}"
+echo "$BASE_SHA $HEAD_SHA" | grep -Eq '^[0-9a-fA-F]{40,64} [0-9a-fA-F]{40,64}$' \
+  || { echo "tips remotos ilegibles"; exit 2; }
+for TIP in "$BASE_SHA" "$HEAD_SHA"; do
+  git cat-file -e "${TIP}^{commit}" 2>/dev/null \
+    || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$TIP"
+done
 # GitHub recomputa mergeable tras cada squash: poll UNKNOWN → veredicto (c/5s máx 60s)
 for i in $(seq 1 12); do
     ST="$(gh pr view "$PR" --json mergeable,mergeStateStatus -q '"\(.mergeable) \(.mergeStateStatus)"')"
@@ -519,8 +549,8 @@ case "$ST" in
     # DETACHED HEAD: la rama puede estar checkouteada en el worktree de su
     # dueña y un checkout normal fallaría. El merge desciende del head remoto
     # ⇒ push fast-forward normal, jamás force.
-    git checkout --detach "origin/$RAMA"
-    git merge --no-edit "origin/$BASE_T"    # rerere re-aplica la resolución de 5.1; si algo queda, replay manual con lo aprendido ahí
+    git checkout --detach "$HEAD_SHA"
+    git -c rerere.enabled=true -c rerere.autoupdate=true merge --no-edit "$BASE_SHA"    # replay sin mutar .git/config
     git push origin "HEAD:refs/heads/$RAMA"
     for i in $(seq 1 12); do
         M="$(gh pr view "$PR" --json mergeable -q .mergeable)"
@@ -553,7 +583,6 @@ cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 git push origin --delete "queue/integration-<ts>" 2>/dev/null || true
 gh pr close <nº del draft de integración, si se usó> 2>/dev/null || true
 git worktree remove --force "$HOME/webapps/.wt/$(basename "$PWD")/queue-<ts>" 2>/dev/null || true
-git worktree prune
 ```
 
 La rama de integración **jamás se mergea** — es el banco de pruebas de la
@@ -605,32 +634,51 @@ toca el clon principal.
 ```bash
 cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 REPO_NAME="$(basename "$PWD")"
-# El clon principal se deja en su rama de DEPLOY (branch: de projects.yml, vía
-# el resolver) — NUNCA un checkout de la default a ciegas: en clones staging
-# que deployan desde la release, eso cambiaría el código del servicio corriendo.
+# El clon principal es el árbol desplegado: esta fase sólo compara su HEAD con
+# el SHA anunciado para branch: y deriva cualquier avance al deploy tipado.
 DEPLOY="$(bash "$HOME/webapps/vps-ops-toolkit/scripts/maintenance/resolve-work-coordinate.sh" \
    --check "$REPO_NAME" 2>/dev/null | sed -n 's/^deploy_branch=//p')"
 CUR="$(git rev-parse --abbrev-ref HEAD)"
-# Escritura legítima del ORQUESTADOR sobre el clon principal: el prefijo
-# FLEET_ALLOW_MAIN_CLONE_WRITE=1 es el escape del hook PreToolUse (que si no deniega
-# checkout/pull ahí). Una SESIÓN nunca lo usa.
-if [ -n "$DEPLOY" ] && [ "$CUR" = "$DEPLOY" ]; then
-    FLEET_ALLOW_MAIN_CLONE_WRITE=1 git pull --ff-only origin "$DEPLOY" 2>/dev/null || true
-elif [ -n "$DEPLOY" ] && [ -z "$(git status --porcelain)" ]; then
-    FLEET_ALLOW_MAIN_CLONE_WRITE=1 git checkout "$DEPLOY" \
-      && { FLEET_ALLOW_MAIN_CLONE_WRITE=1 git pull --ff-only origin "$DEPLOY" 2>/dev/null || true; }
+DEPLOY_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$DEPLOY" 2>/dev/null || true)"
+DEPLOY_SHA="${DEPLOY_LINE%%[[:space:]]*}"
+if echo "$DEPLOY_SHA" | grep -Eq '^[0-9a-fA-F]{40,64}$'; then
+    git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null \
+      || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$DEPLOY_SHA"
+    if [ "$(git rev-parse HEAD)" = "$DEPLOY_SHA" ]; then
+        echo "✅ clon desplegado intacto y current: $CUR@$DEPLOY_SHA"
+    else
+        PENDING="$(git rev-list --count "HEAD..$DEPLOY_SHA" 2>/dev/null || echo '?')"
+        echo "⚠️ clon desplegado intacto: deploy pendiente ($PENDING commit(s))"
+        echo "   ejecutar manualmente: cd $PWD && bash $HOME/webapps/vps-ops-toolkit/scripts/deployment/deploy-project.sh --apply --project=$REPO_NAME $DEPLOY"
+    fi
 else
-    echo "⚠️ el clon se queda en '$CUR' (tree sucio o deploy_branch irresoluble) — se reporta"
+    echo "⚠️ clon desplegado intacto: deploy_branch/tip irresoluble ($CUR) — se reporta"
 fi
 echo "--- ramas obsoletas (se REPORTAN, jamás se borran: -D es del operador) ---"
 git for-each-ref refs/heads --format='%(refname:short) %(upstream:track)'
 echo "--- worktrees restantes (los queue-* de esta corrida ya se retiraron en 5.5) ---"
-git worktree prune; git worktree list
+git worktree list
 echo "--- CI de la base (INFORMATIVO: no se espera, no se vigila, no frena nada) ---"
 DEFAULT="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo master)"
 gh run list --branch "$DEFAULT" --limit 3
 rm -rf "/tmp/merge-queue-${REPO_NAME}"
 ```
+
+### Integridad (eco) — informativo, NUNCA un gate
+
+La queue mergeó trabajo de N sesiones sobre clones que además son árboles
+deployados. Antes del tablero final, pedile su línea al motor `vps-integrity`.
+**No condiciona el drenaje**: `drift>0` o críticos abiertos se REPORTAN, jamás
+frenan un merge ni degradan una fila ya mergeada.
+
+```bash
+if [ -f "$HOME/webapps/vps-ops-toolkit/scripts/integrity/fleet-integrity-status.sh" ]; then bash "$HOME/webapps/vps-ops-toolkit/scripts/integrity/fleet-integrity-status.sh"; elif [ -x /usr/local/sbin/vps-integrity ]; then sudo -n /usr/local/sbin/vps-integrity status --line; else echo "ℹ️ vps-integrity no instalado — sin eco de integridad"; fi
+```
+
+La vista de fleet resuelve sola local vs `tailscale ssh`; su **exit 75** es la
+pausa de auth de Tailscale, no un error: mostrale el link al operador y seguí.
+Va como UNA línea bajo el tablero (`Integridad: drift=<n> · críticos=<n> · <VPS>`
+o `Integridad: ⏭️ motor no instalado`), nunca como columna ni como veredicto.
 
 Los **worktrees de sesión** cuyo PR quedó mergeado se reportan como **retirables**:
 los retira la **sesión dueña** con `$all-in-base` al ver su PR ya mergeado
@@ -755,15 +803,15 @@ vuelo, watcher del CI combinado, bisect) · en Phase 6 como reporte final.
 - **Nunca force push**, en ninguna variante — ni `--force`, ni `--force-with-lease`
   (los cubre el deny del fleet), ni el refspec `+` (sería evadir una policy que
   guarda contra accidentes). La alternativa SIEMPRE es `gh pr update-branch` o
-  `git merge origin/<base>` en detached HEAD desde el worktree de la queue
+  `git merge <sha-base>` en detached HEAD desde el worktree de la queue
   (push `HEAD:refs/heads/<rama>` fast-forward).
 - **Nunca `git rebase` sobre una rama pusheada** (su push sería force). Rebase
   sólo sería aceptable en una rama local-only jamás pusheada — y aun ahí el
   merge es más simple y igual de válido con squash.
-- **El clon principal jamás se toca**: ni checkout, ni merge, ni stash en
-  `~/webapps/<repo>` — toda mutación de tree ocurre en el worktree
-  `~/webapps/.wt/<repo>/queue-<ts>` de la corrida. Única excepción: el cierre
-  (Phase 6) puede devolver el clon a su `branch:` de DEPLOY con tree limpio.
+- **El clon principal jamás se toca**: ni checkout, ni pull, ni merge, ni stash
+  en `~/webapps/<repo>` — toda mutación de tree ocurre en el worktree
+  `~/webapps/.wt/<repo>/queue-<ts>` de la corrida. Phase 6 sólo sondea el SHA y
+  deriva un avance pendiente a `deploy-project.sh` (manual, operación tipada).
 - **La rama `queue/integration-*` jamás se mergea** — banco de pruebas de la
   combinación; se borra en 5.5 (remota + worktree). Sus restos huérfanos de
   corridas anteriores son cleanup, nunca unidades.
@@ -859,7 +907,7 @@ En `--all-repos`: columna `Repo` primero; >15 filas ⇒ anteponer
   (`gh pr edit <n> --body ...`) — sin dueño declarado la delegación degrada a
   heurística.
 - `excluida:diverged` → reconciliar a mano (el force push está denegado; mirá
-  `git log --oneline <rama>...origin/<rama>`).
+  `git log --oneline <rama>...<sha-remoto>` del censo).
 - (manual) `git branch -D <ramas ya-en-base>` — borrado a decisión del operador.
 - Si no se pudo avisar a las sesiones (harness sin ListAgents/SendMessage, o
   filas `⚠️ sesión no alcanzable`) → «en cada sesión dueña de este repo:

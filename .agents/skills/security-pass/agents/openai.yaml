@@ -1,0 +1,7 @@
+interface:
+  display_name: "Security Pass"
+  short_description: "Pasada de seguridad de UN proyecto: autenticación, permisos..."
+  default_prompt: "Use $security-pass to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

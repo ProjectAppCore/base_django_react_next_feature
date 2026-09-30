@@ -7,7 +7,7 @@ description: "Audita vulnerabilidades y dependencias en backend (Python) y front
 
 | Skill | Úsala cuando | Cadencia típica |
 |---|---|---|
-| `$full-audit` | Veredicto integral 🟢/🟡/🔴 del VPS o del fleet (`--all`): configs, drift, envs, timers, health, email — 12 fases automatizadas, ~4 min | Post-cambio grande, post-incidente, trimestral |
+| `$full-audit` | Veredicto integral 🟢/🟡/🔴 del VPS o del fleet (`--all`): configs, drift, envs, timers, huérfanas, integridad, health, email — 15 fases automatizadas, ~4 min | Post-cambio grande, post-incidente, trimestral |
 | `$server-diagnostic` | Informe profundo por las 15 buenas prácticas con score y recomendaciones por proyecto — más narrativo y granular que full-audit | Semanal automático (cron) / a demanda |
 | `$vuln-audit` | Dependencias y CVEs de UN proyecto (pip + npm): default arma el plan sin tocar nada; `--apply` aplica patch+minor en batch; `--upgrade` moderniza todo (majors incluidos) commit a commit con CI verde por commit | Por proyecto: mensual o ante CVE; `--upgrade` trimestral o al planificar una modernización |
 
@@ -15,6 +15,86 @@ Se orquestan en UNA sola dirección: `$deploy-and-check` (manual-only) corre el 
 
 
 # vuln-audit — Vulnerability & Dependency Audit (multi-stack)
+
+## Beneficio y vulnerabilidades obligatorias
+
+Aplicar `workflows/improvement/IMPROVEMENT_STANDARDS.md` al trabajo discrecional de
+modernización: estar `outdated` por sí solo no demuestra un beneficio. Elegir mejoras
+materiales con evidencia, o menores sólo con esfuerzo `S`, riesgo `low` y utilidad
+concreta. Modernización marginal costosa ⇒ `deferred-low-value`; beneficio desconocido
+⇒ `needs-evidence`, no «suficiente». Guardar razón/contexto y referencias a reportes,
+sin convertir versiones o conteos de CVEs en métricas persistidas del ledger de mejoras.
+
+Una vulnerabilidad conocida, secreto expuesto, fallo de permisos/autenticación o riesgo
+de pérdida de datos demostrado **no se posterga silenciosamente por bajo retorno**.
+Si el arreglo viola un pin, exige major o cambia el contrato, queda `blocked`/`remaining`
+con la causa y el camino de resolución; las restricciones de esta skill siguen vigentes.
+No forzar el bump ni declarar el frente resuelto. Cuando la superficie escaneada carece
+de obligaciones pendientes y sólo restan bumps de poco retorno, explicar «Conviene parar
+en dependencias para <alcance>: <evidencia>; revisar si cambia <condición>» sin installs
+o commits de reporte vacíos. Scanner ausente o superficie sin auditar no prueba suficiencia.
+`--upgrade` explícito conserva su selección y secuencia autorizadas; reportar la
+recomendación económica sin recortar en silencio la modernización pedida por el operador.
+
+## Delegación acotada por security-pass
+
+$security-pass puede delegar UN candidato de dependencias mediante dos bloques de
+contexto. No son flags ni modos nuevos de pip/npm:
+
+```yaml
+IMPROVEMENT_CONTEXT:
+  conductor: improvement-pass # security-pass si es la skill principal
+  round_id: <id de ronda>
+  project: <proyecto>
+  codebase: <codebase>
+  projdir: <worktree de sesión absoluto>
+  branch: <rama de sesión>
+  base: <base resuelta>
+  candidate_ids: [<id de seguridad asignado>]
+  allowed_paths: [<paths de este candidato>]
+  mode: apply # check para sólo escanear
+  owns_git: conductor
+VULN_CANDIDATE:
+  surface: frontend # backend para Python
+  packages:
+    - name: <paquete>
+      current: <versión actual confirmada>
+      target: <versión exacta propuesta>
+  advisories: [<CVE/GHSA u otros IDs conocidos>]
+  allowed_paths: [<manifest y lockfile o requirements asignados>]
+```
+
+Contrato con precedencia sobre las fases de batch/landing y los menús independientes:
+
+1. Validar `session-worktree.sh status`, proyecto/remote, rama/base y pertenencia de la
+   sesión/PR al conductor; tree limpio antes de aplicar y paths del descriptor incluidos
+   en los autorizados. Descriptor incompleto, versión actual distinta o rama ajena ⇒
+   `blocked`, sin mutaciones. Sin ambos bloques, no asumir delegación: rigen los modos
+   independientes. En la ronda combinada este candidato consume uno de los tres cupos
+   globales, no habilita tres nuevos candidatos de dependencias.
+2. Ejecutar la auditoría read-only en la superficie asignada y verificar advisories,
+   versiones, pins, constraints, peers, Node/Python y alcance semver. Otros paquetes
+   encontrados se devuelven como notas, sin actualizar. Un scanner ausente o un scan
+   fallido degrada/bloquea el diagnóstico; no significa «sin vulnerabilidades».
+3. En `mode=apply`, aplicar **sólo los targets exactos del descriptor**, permitidos bajo
+   las reglas de patch+minor existentes. Frontend: editar los paquetes seleccionados
+   (directos o overrides transitivos justificados por la vuln), resolver lockfile con
+   el Node autorizado y conservar overrides. Backend: editar sólo los pins seleccionados
+   y resolver dentro del venv aislado del worktree. No ejecutar los batches generales
+   `npm audit fix`, `npm-check-updates -u` ni actualizar el resto de `requirements.txt`.
+   Los cambios transitivos necesarios se explican como cierre del mismo candidato;
+   un cambio de paquete ajeno sin esa necesidad se bloquea/aisla, no se acepta de paso.
+4. Major, `0.x` que cambia minor, feature release de Django, pin incompatible o peer
+   irresoluble ⇒ `blocked`/`remaining` con causa y recomendación de una modernización
+   explícita. La delegación no activa `--upgrade` ni cambia sus topes/gates. Una CVE
+   conocida sigue siendo obligación pendiente, no un diferido económico.
+5. Ejecutar únicamente los checks mínimos apropiados de esta skill sobre lo cambiado;
+   no confundir `collect-only`/build/audit con tests conductuales ejecutados. Devolver
+   diff, paquetes antes/target, advisories todavía presentes, evaluación de valor,
+   salidas de checks y guion `brief-security` por candidate ID para $qa. El conductor
+   integra Git/reporte/registros y ejecuta la única etapa de QA. No escribir
+   `audit-report.md` sobre el reporte independiente previo, no crear otra rama/worktree,
+   no commit/push/PR ni QA inline. En `mode=check` devolver diagnóstico sin editar.
 
 ## Goal
 Replicar de forma automática el flujo manual de auditoría que vive en `audit-report.md` de los proyectos del repo, en tres niveles:
@@ -39,7 +119,7 @@ Replicar de forma automática el flujo manual de auditoría que vive en `audit-r
 - **Working tree debe estar limpio** antes de aplicar (`git status` sin cambios). Si no lo está, abortar el modo mutante; la auditoría read-only puede correr igual (no toca el tree).
 - **Alcance por modo.** `--apply`: **solo patch + minor** dentro del major actual. `--upgrade`: los majors entran **únicamente como unidad propia** (un paquete o grupo lockstep por commit), jamás dentro de un batch. En ambos modos `0.x → 0.y` (y `0.x → 1.x`) **es major**, y **Django cuenta cada *feature release* como major** (`6.0 → 6.1`, `6.1 → 6.2`: cambian el soporte de bases de datos y quitan APIs aunque no cambie el primer número; sólo `X.Y.Z → X.Y.W` es patch) — `--apply` la salta, `--upgrade` la trata como unidad framework con el gate de la base de producción. **Nunca** `npm audit fix --force`.
 - **Respetar pins y constraints documentados:** `requirements.txt` con `<X.Y` o `>=A,<B`, los comentarios inline del propio `requirements.txt`, los constraints de `CLAUDE.md`/`AGENTS.md` y el `node_version` de producción en `projects.yml`. Un bump que los viole se salta y se reporta; nunca se fuerza ni se edita el constraint.
-- **Venv aislado en el worktree (modos mutantes).** El venv del clon principal es el del servicio en **producción** y `session-worktree.sh` no lo enlaza a propósito. Toda instalación de Python en un worktree va a `backend/.venv` creado DENTRO del worktree (`python3 -m venv backend/.venv`, gitignored); jamás `source` de un venv fuera del worktree, jamás `pip install` con el pip del clon principal. El modo read-only usa el venv del proyecto sólo para leer (lo único que instala ahí es `pip-audit` si falta — contrato con `scripts/lib/deps-probes.sh`).
+- **Venv aislado en el worktree (modos mutantes).** El venv del clon principal es el del servicio en **producción** y `session-worktree.sh` no lo enlaza a propósito. Toda instalación de Python en un worktree va a `backend/.venv` creado DENTRO del worktree (`python3 -m venv backend/.venv`, gitignored); jamás `source` de un venv fuera del worktree, jamás `pip install` con el pip del clon principal. El modo read-only usa el venv desplegado sólo para leer y **nunca instala un scanner faltante**: el build tipado de dependencias instala `pip-audit>=2.7,<3`; si una instalación anterior no lo trae, la auditoría reporta `degraded: scanner missing` y pide regenerar ese venv mediante el deploy/operación tipada, sin autocurarlo fuera de una operación.
 - **Sin base de datos desde el worktree.** `backend/.env` del worktree es un enlace al `.env` de PRODUCCIÓN (en mimittos apunta al MySQL real). Verificación local backend = `pip check` + `python manage.py check` + `pytest --collect-only -q`, nada más; un slice de tests corre SÓLO si `backend/pytest.ini` declara un `settings_test` (sqlite) o si los settings del proyecto leen el motor del entorno (linaje base_feature: `DJANGO_DB_ENGINE`) y el comando lo fuerza a sqlite (`DJANGO_DB_ENGINE=django.db.backends.sqlite3`). Nunca `manage.py migrate`, nunca tests ni `manage.py` con `DJANGO_ENV=production`/settings de producción desde el worktree — **única excepción**, sólo en `--upgrade` y sólo para un major de Django o `mysqlclient`: `manage.py check --database default` con el selector de producción, que abre la conexión de sólo lectura y corre los checks del backend MySQL que el CI (sqlite) no puede ver; jamás `migrate`, `shell`, `dbshell` ni tests con esos settings. La suite completa la corre el CI.
 - **Nunca correr la suite completa** de tests en local (regla "never run the full suite" de los `CLAUDE.md`): en `--apply` sólo `pytest --collect-only` + el slice sqlite si existe; en `--upgrade` la suite la corre el CI de cada commit y lo local es smoke de ≤3 comandos por unidad.
 - **`0.x → 0.y` es major también para `npm-check-updates`:** la corrida `--target minor` lleva `--reject` con la lista literal de los paquetes directos cuyo `current` es `0.x`; un `0.x → 0.y` sólo entra como unidad major en `--upgrade`.
@@ -58,6 +138,10 @@ intención es clara por la sesión (p.ej. acaba de llegar el aviso de un CVE pun
 proponer el comando en una línea y esperar confirmación. Sin argumentos → UNA
 sola `AskUserQuestion` con Q1+Q2 fusionadas. Nunca preguntar en modo
 fleet/headless/cron ni dentro de un barrido.
+
+La invocación delegada por $security-pass hereda el contexto/selección explícitos
+del conductor y nunca abre este menú; ver el contrato acotado más abajo. Los modos
+independientes y `--upgrade` explícito conservan su comportamiento.
 
 **Q1 — Modo** (selección única):
 
@@ -109,21 +193,10 @@ commit.
    (ver `## Idempotencia`); `pr_state=MERGED|CLOSED` ⇒ retiralo primero desde el clon
    principal (`bash ~/webapps/vps-ops-toolkit/scripts/maintenance/session-worktree.sh remove deps-upgrade`)
    y creá uno nuevo.
-   Manual (sin el helper — evitar salvo emergencia; **nunca** derivar la BASE con
-   `git remote show origin` a secas, que da siempre la default e ignora una release
-   activa — mismo bug que el CRITICAL de la Fase 3):
-   ```bash
-   # pre-entry: corre en el clon principal, antes de EnterWorktree
-   SLUG="vuln-audit"                        # --upgrade: SLUG="deps-upgrade"
-   REPO="$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")"
-   BASE="$(bash "$HOME/webapps/vps-ops-toolkit/scripts/maintenance/resolve-work-coordinate.sh" \
-           --check "$REPO" 2>/dev/null \
-           | awk -F= '$1=="pr_state"{ps=$2} $1=="resolved_branch"{rb=$2} END{if(ps=="single") print rb}')"
-   [ -z "$BASE" ] && BASE="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo master)"
-   WT="$HOME/webapps/.wt/$REPO/$SLUG"
-   git fetch origin "$BASE" --quiet
-   git worktree add "$WT" -b "chore/$(date +%d%m%Y)-$SLUG" "origin/$BASE"
-   ```
+   No hay fallback manual con `git fetch` + `git worktree add`: omitir el helper
+   eludiría tanto la coordenada release-aware como el inventario `gitmeta` de la
+   operación. Si el helper no está disponible o no puede resolver el SHA remoto
+   exacto, abortá sin tocar el clon y repará/actualizá el toolkit primero.
 2. (solo modos mutantes) `git status --porcelain` **ya dentro del worktree** → si imprime
    cualquier línea, abortar con: "Working tree no está limpio. Commitea antes de correr
    vuln-audit --apply/--upgrade (nunca stash en un clon principal del fleet)." Excepción
@@ -137,10 +210,10 @@ commit.
    - **Read-only (clon principal):** detectar el venv del proyecto (el primero que exista:
      `backend/.venv/bin/python`, `backend/venv/bin/python`; si ninguno existe y se va a
      auditar backend, abortar pidiendo crear el venv) y usarlo **sólo para leer**
-     (`pip list --outdated`, `pip-audit`). Lo único que se instala ahí es `pip-audit` si
-     falta (contrato con `scripts/lib/deps-probes.sh`, que sólo lo usa si ya está):
+     (`pip list --outdated`, `python -m pip_audit`). No instalar nada si el módulo falta:
      ```bash
-     backend/venv/bin/pip show pip-audit >/dev/null 2>&1 || backend/venv/bin/pip install pip-audit
+     backend/venv/bin/python -m pip_audit --version >/dev/null 2>&1 || \
+       echo "degraded: scanner missing — regenerar dependencias mediante deploy/operation-deps"
      ```
    - **Modos mutantes (worktree):** el venv del clon principal es el de producción y no
      está enlazado. Crear uno propio dentro del worktree (gitignored) — y **recrearlo
@@ -162,10 +235,13 @@ commit.
    `backend/.venv` en los modos mutantes; se escribe **literal** en cada comando.
 6. Rama base: en los modos mutantes sale de `session-worktree.sh status` (`base` = la de la
    coordenada: release activa si la hay, default si no) y se escribe literal (`<base literal>`).
-   En read-only, `git remote show origin | grep "HEAD branch"` (o probar `origin/main`/`origin/master`)
-   alcanza para informar.
-7. Capturar `BASE_SHA` con `git merge-base HEAD origin/<base literal>` (short) — sólo informativo
-   para el reporte.
+   En read-only, `git ls-remote --symref origin HEAD` alcanza para informar sin
+   mover refs locales.
+7. Resolver `refs/heads/<base literal>` con `git ls-remote --exit-code --refs
+   origin refs/heads/<base literal>`; si el SHA impreso falta, materializar sólo
+   ese objeto con `git fetch --no-auto-gc --no-tags --no-write-fetch-head
+   --quiet origin <sha literal>`. Capturar `BASE_SHA` con `git merge-base HEAD
+   <sha-remoto literal>` (short). Nunca usar `origin/<base>`: puede estar stale.
 8. Leer `CLAUDE.md` y `AGENTS.md` raíz si existen, y además `grep -n "#" backend/requirements.txt`
    (los comentarios inline son constraints, p.ej. «Production uses MySQL 8.0.x; Django 6.1
    requires MySQL 8.4+» ⇒ Django `<6.1`), el `node_version:` del proyecto en
@@ -228,17 +304,29 @@ en batch (solo `--apply`). En `--upgrade` la aplicación es el loop de
    plan (Fase 3) y no se toca `package.json` ni se corre ningún install. Con `--upgrade`,
    la aplicación es el loop de `## Modo --upgrade`.
 
+   Para el batch independiente `--apply`, evaluar el beneficio de los bumps sin CVE
+   antes de escribir. La lista literal `ELIGIBLE_NPM` contiene sólo los paquetes
+   elegibles por esa evaluación (incluidos los fixes permitidos de CVEs). Los inciertos
+   y diferidos quedan en el reporte con razón. La auditoría y `--upgrade` siguen listando
+   todos los paquetes; no confundir una lista completa con permiso para modernizar
+   paquetes sin beneficio demostrado.
+
 3. (solo `--apply`) **Aplicar updates** (un comando por llamada; `--reject` sólo en la
    corrida minor y sólo si `ZEROX` no está vacía; nunca `npm audit fix --force`):
    ```bash
    npm --prefix frontend audit fix
    ```
    ```bash
-   npx --yes npm-check-updates --cwd frontend -u --target minor --reject <ZEROX literal, separado por comas>
+   npx --yes npm-check-updates --cwd frontend -u --target minor --filter <ELIGIBLE_NPM literal, separado por comas> --reject <ZEROX literal, separado por comas>
    ```
    ```bash
    source ~/.nvm/nvm.sh && nvm use <node> && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm --prefix frontend install
    ```
+
+   Omitir el comando `npm-check-updates` si `ELIGIBLE_NPM` está vacío; omitir `--reject`
+   si `ZEROX` está vacío. `npm audit fix` atiende las vulnerabilidades bajo los pins;
+   no se usa para modernización discrecional. Sin cambios de dependencias no instalar
+   ni crear un commit de bump vacío.
 
 4. (solo `--apply`) **Manejo de ERESOLVE:** si `npm install` falla con `ERESOLVE`:
    - Identificar el paquete ofensor del mensaje de error.
@@ -279,13 +367,16 @@ Los pasos 1–4 son la auditoría (siempre); del 5 en adelante es la aplicación
    read-only, `backend/.venv` del worktree en los modos mutantes. Nunca `source …/activate`:
    los binarios se invocan por ruta.
 
-2. **pip-audit disponible:** read-only, instalado en el venv del proyecto si faltaba (Fase 0
-   paso 5); modos mutantes, ya instalado en `backend/.venv`.
+2. **pip-audit disponible:** en read-only comprobarlo con `<venv>/bin/python -m
+   pip_audit --version`. Si falta, registrar una sola señal `degraded: scanner
+   missing`, conservar el resultado de `pip list --outdated` y **no** ejecutar
+   `pip install`; el remedio es el próximo build tipado de dependencias. En modos
+   mutantes ya está instalado dentro de `backend/.venv`, que pertenece al worktree.
 
 3. **Snapshot inicial** (`pip-audit` sale 1 cuando hay vulns; esperado). Con `<venv>` literal
    (`backend/venv` o `backend/.venv` según el modo):
    ```bash
-   backend/venv/bin/pip-audit --format json --progress-spinner=off > /tmp/<proyecto>-pip-audit.json || true
+   backend/venv/bin/python -m pip_audit --format json --progress-spinner=off > /tmp/<proyecto>-pip-audit.json || true
    ```
    ```bash
    backend/venv/bin/pip list --outdated --format json > /tmp/<proyecto>-pip-outdated.json
@@ -302,12 +393,15 @@ Los pasos 1–4 son la auditoría (siempre); del 5 en adelante es la aplicación
      actual. Si `target == current` ⇒ skip, y si lo que lo frena es un constraint, marcar
      `constraint: <cita>`.
    - Para cada paquete con vulns que solo se arreglan fuera del pin/constraint: marcarlo como **remaining** en el reporte (no intentar el bump).
+   - Para los bumps sin CVE, agregar evaluación de beneficio y motivo. En `--apply`
+     sólo los elegibles entran al batch; inciertos/diferidos permanecen en el reporte.
+     Una vulnerabilidad conocida no se excluye por esa evaluación económica.
 
    **Corte por modo:** sin flags la fase termina acá — el plan alimenta la tabla de Fase 3
-   y no se edita `requirements.txt` ni se instala nada en el venv del proyecto (más allá
-   del propio `pip-audit`). Con `--upgrade`, la aplicación es el loop de `## Modo --upgrade`.
+   y no se edita `requirements.txt` ni se instala nada en el venv del proyecto. Con
+   `--upgrade`, la aplicación es el loop de `## Modo --upgrade`.
 
-5. (solo `--apply`) **Aplicar:** editar `backend/requirements.txt` (Edit) con las nuevas
+5. (solo `--apply`) **Aplicar:** editar sólo los paquetes elegibles de `backend/requirements.txt` (Edit) con las nuevas
    versiones (mantener el operador del pin: si era `==`, sigue `==<nuevo>`; si era rango,
    ajustar el floor sin tocar el techo). Luego:
    ```bash
@@ -393,7 +487,7 @@ ledger y van a «Acción operativa posterior al merge» del reporte.
 1. Snapshots de auditoría (Fase 1 pasos 1–2, Fase 2 pasos 3–4) ya en el worktree.
 2. Armar la lista de unidades `1..K` con paquetes y objetivos; imprimirla con la estimación
    `K × T` (T = duración del último run, del preflight).
-3. Resume (`## Idempotencia`): reconciliar con `git log --format='%h %s' origin/<base literal>..HEAD`
+3. Resume (`## Idempotencia`): reconciliar con `git log --format='%h %s' <BASE_SHA literal>..HEAD`
    y saltar las unidades ya aplicadas o diferidas.
 4. Desde la segunda unidad, guard antes de cada push: `gh pr view <n> --json state -q .state`
    debe imprimir `OPEN`.
@@ -549,7 +643,7 @@ gh pr checks <n> --json name,state,bucket
 - `pending` residual ⇒ un `--watch` más.
 
 **Paso 8 — revert de un major.** `<sha>` = commit de la unidad (del
-`git log --format='%h %s' origin/<base literal>..HEAD`); el rango cubre la unidad y sus fixes:
+`git log --format='%h %s' <BASE_SHA literal>..HEAD`); el rango cubre la unidad y sus fixes:
 ```bash
 git revert --no-commit <sha unidad literal>^..HEAD && git commit -m "revert(deps): react 18.3.1 -> 19.1.0 (CI red: <cause>)"
 ```
@@ -617,6 +711,9 @@ ningún archivo ni commit):
 - Los **majors se listan igual**, marcados `major (skip en --apply)` — `--apply` nunca los
   aplica; `--upgrade` los aplica uno por commit (columna `Unidad`).
 - `Riesgo`: una frase por paquete (qué podría romper el bump o por qué se saltea).
+- Agregar evaluación de valor por paquete: beneficio, esfuerzo/riesgo, obligación,
+  decisión/motivo y evidencia. La lista de `--upgrade` explícito sigue completa; el
+  consejo de parar se muestra sin recortar ese alcance autorizado.
 - Debajo de la tabla, la lista «**Orden de unidades para `--upgrade`**» (1..K, con paquetes
   y objetivos): el plan read-only es el dry-run exacto del modo.
 - La aplicación queda para `--apply`/`--upgrade` o para la selección en el menú post-reporte.
@@ -796,7 +893,7 @@ raíz del proyecto:
 (ledger completo: unidad · commit · run · veredicto · iteraciones · hora; snapshots en `/tmp/<proyecto>-*.json`)
 
 ## Acción operativa posterior al merge
-- El deploy reinstala (`pip install -r backend/requirements.txt`, `npm ci && npm run build`); sin migraciones nuevas (`makemigrations --check` limpio en cada major de Django).
+- El deploy reconstruye dependencias mediante el broker tipado (`operation-deps pip|npm`) y después ejecuta el build; sin migraciones nuevas (`makemigrations --check` limpio en cada major de Django).
 - Paquetes runtime-only que el CI no ejercita (`CI: no cubre`): <lista> — validar con `$deploy-and-check` tras el deploy.
 - Majors diferidos: orden sugerido para la próxima corrida.
 ```
@@ -812,7 +909,7 @@ de sesión es CI verde en HEAD) → `PR URL: <url>` y **PARÁ**.
   - Hacer el commit del reporte solo si su contenido cambió respecto al existente.
 - `--upgrade` reanuda desde git, no desde memoria: (1) reutiliza worktree/rama/PR
   `deps-upgrade` si el PR sigue `OPEN` (o no existe aún); (2)
-  `git log --format='%h %s' origin/<base literal>..HEAD` reconstruye el ledger —
+  `git log --format='%h %s' <BASE_SHA literal>..HEAD` reconstruye el ledger —
   `chore(deps):` = aplicada, `revert(deps):` = diferida, `fix(deps):` = iteración; (3)
   re-escanea outdated en HEAD → las unidades restantes; (4) los paquetes con `revert(deps):`
   en el log, los listados en `## Actualizaciones mayores diferidas` del `audit-report.md`

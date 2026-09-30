@@ -82,7 +82,7 @@ profundizable.
 ### Excepción: skills cuyo output ES el producto
 
 Skills donde la respuesta misma es el entregable para un humano — a veces no
-técnico — (hoy: `human`, `user-walkthrough`): una tabla de dimensiones al
+técnico — (hoy: `human`, `user-walkthrough`, `where-are-we`): una tabla de dimensiones al
 final sólo mete ruido sobre el producto. Estas skills cierran SÓLO con la
 línea de veredicto (§1), sin tabla §2 ni Next steps técnicos, y deben
 declarar la excepción en su propio `## Output final`.
@@ -184,6 +184,12 @@ de drift.
   (`commit`, `rebase`, `chmod`, `staging`, `lifecycle`).
 - **Sin prosa redundante** después de la tabla. Nada de "En resumen, todo
   está OK excepto..." — la tabla ya lo dice.
+- **Línea de avance teórico:** la respuesta cierra con la línea `📊 Avance …` que
+  exige la regla fleet-base «Avance teórico en cada respuesta» (`CLAUDE.md` /
+  `AGENTS.md`): va después de Next steps y no cuenta como prosa redundante. En las
+  skills que fijan su última línea (el veredicto de las de output-es-el-producto,
+  `Report path:`) va justo antes de esa línea. Si el reporte de la skill ya es la
+  línea de avance —la línea «Global» de $where-are-we—, no se duplica.
 - **Sin headers tipo "Phase 1", "Step 2"** en el reporte final — categorizar
   por **tema**, no por orden de ejecución.
 - **Cada celda de estado** se navega en <1 segundo: un emoji + ≤80 chars de
@@ -213,6 +219,8 @@ de drift.
 - `sudo tailscale up --ssh` — completar OAuth en browser de la dev
 - `bash scripts/bootstrap/init-fleet.sh --apply` — re-correr tras auth
 - (admin console) Disable key expiry para esta dev en https://login.tailscale.com/admin/machines
+
+📊 Avance ▰▰▰▰▰▰▰▱▱▱ 70 % — falta: OAuth de Tailscale y re-correr init-fleet
 ```
 
 ## Cómo referenciar este protocolo desde una skill

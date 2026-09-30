@@ -132,3 +132,4 @@ Reportar siguiendo [[_output-protocol]]. Plantilla específica de esta skill (re
 ## Next steps
 - (manual, operador) aplicar el fix before/after propuesto — esta skill no modifica archivos
 - tras aplicar: correr el comando de "Plan de verificación" para validar + chequear regresión
+- si la causa raíz es de rendimiento (lentitud, N+1, timeout, memoria por request, cola de tareas bloqueada): `/perf-pass <requerimiento>` — modo A de [[perf-pass]]: declara el perfil de cómputo del host, aplica en el worktree de la sesión y deja el guion a /qa, en lugar de un fix a mano

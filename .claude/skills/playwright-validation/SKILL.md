@@ -90,7 +90,7 @@ for m in apps.get_models():
   "${PROJ_PATH}/backend/venv/bin/python" "${PROJ_PATH}/backend/manage.py" check --deploy
   ```
 
-> **Nota DB:** la mayoría del fleet usa **MySQL `localhost:3306`** (con credenciales en `config/credentials/mysql-users.env` por proyecto). Excepciones detectables vía `DB_TYPE[$PROJ]`: `azurita` y `candle_staging_project` usan **SQLite**. Para validación vía Django ORM esto es transparente.
+> **Nota DB:** la mayoría del fleet usa **MySQL `localhost:3306`** (con credenciales en `config/credentials/mysql-users.env` por proyecto). Excepciones detectables vía `DB_TYPE[$PROJ]`: `azurita` y `candle_project_staging` usan **SQLite**; Aviation usa PostgreSQL. Para validación vía Django ORM esto es transparente.
 
 ### Paso C — Autenticación y storage state (split staging/prod)
 
@@ -98,28 +98,16 @@ Las sesiones se guardan en rutas **separadas por entorno**, jamás mezcladas:
 
 | Entorno | Ruta de sesión |
 |---|---|
-| Staging | `/home/ryzepeck/webapps/<proyecto>/.playwright_staging/sessions/<username>.json` |
-| Production | `/home/ryzepeck/webapps/<proyecto>/.playwright_prod/sessions/<username>.json` |
+| Staging | `${XDG_STATE_HOME:-$HOME/.local/state}/vps-ops-toolkit/playwright/<proyecto>/staging/sessions/<username>.json` |
+| Production | `${XDG_STATE_HOME:-$HOME/.local/state}/vps-ops-toolkit/playwright/<proyecto>/production/sessions/<username>.json` |
 
-**Antes** de escribir cualquier sesión, garantizar que el dir esté gitignored:
+El estado de autenticación vive fuera del checkout vigilado. La validación no
+modifica `.gitignore`, ni siquiera en staging:
 
 ```bash
-cd "${PROJ_PATH}"
-SESSIONS_BASE=$([ "$ENV" = "production" ] && echo ".playwright_prod" || echo ".playwright_staging")
-
-# Asegurar entrada en .gitignore (idempotente)
-if ! grep -qE "^${SESSIONS_BASE}/?$" .gitignore 2>/dev/null; then
-  echo "${SESSIONS_BASE}/" >> .gitignore
-fi
-
-# Verificar que git efectivamente lo ignora
-if ! git check-ignore -q "${SESSIONS_BASE}/" 2>/dev/null; then
-  echo "FATAL: ${SESSIONS_BASE}/ no está siendo ignorado por git. Abortando para no leakear credenciales."
-  exit 2
-fi
-
-mkdir -p "${PROJ_PATH}/${SESSIONS_BASE}/sessions"
-chmod 700 "${PROJ_PATH}/${SESSIONS_BASE}" "${PROJ_PATH}/${SESSIONS_BASE}/sessions"
+STATE_ROOT="${XDG_STATE_HOME:-${HOME}/.local/state}/vps-ops-toolkit/playwright/${PROJ}/${ENV}"
+SESSIONS_BASE="${STATE_ROOT}/sessions"
+install -d -m 0700 "${STATE_ROOT}" "${SESSIONS_BASE}"
 ```
 
 **Reglas de uso:**
@@ -127,7 +115,7 @@ chmod 700 "${PROJ_PATH}/${SESSIONS_BASE}" "${PROJ_PATH}/${SESSIONS_BASE}/session
 - Si existe `<username>.json` y `mtime < 7 días`: reusar con `browser_set_storage_state` (cap `storage`). Internamente Playwright expone `setStorageState()` que aplica el state al context activo sin crear uno nuevo — más eficiente que el patrón viejo de `newContext({ storageState })` y compatible con Test Agents.
 - Si no existe o expiró: hacer login interactivo en el browser, luego `browser_storage_state` para exportar; persistir con `chmod 600 <username>.json`.
 - Si el proyecto guarda tokens en **IndexedDB** (ej. Firebase Auth, algunos SDKs SaaS): pasar `indexedDB: true` al exportar storage state — soportado desde Playwright 1.58. Default es solo cookies + localStorage.
-- **Nunca** copiar manualmente un JSON entre `.playwright_staging/` y `.playwright_prod/`. Son dominios distintos y cookies cruzadas son un bug semántico.
+- **Nunca** copiar manualmente un JSON entre `staging/sessions` y `production/sessions`. Son dominios distintos y cookies cruzadas son un bug semántico.
 - En production, si el operador no provee `--user=` y no hay sesión válida: detener y preguntar (no auto-loguear con credenciales adivinadas).
 
 ### Paso D — URL objetivo
@@ -273,14 +261,14 @@ Al terminar la sesión MCP (éxito o error):
 rm -rf "/tmp/playwright-mcp-${PROJ}/${RUN_ID}"
 # Si el operador no pidió conservar nada en otra ruta, borrar también runs viejos del mismo proyecto:
 find "/tmp/playwright-mcp-${PROJ}" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} +
-# Limpiar artefactos accidentales en la raíz del proyecto (output-mode mal configurado):
-find "${PROJ_PATH}" -maxdepth 1 -type f \( -name 'page-*.png' -o -name 'page-*.jpeg' -o -name 'page-*.pdf' -o -name 'storage-state-*.json' \) -delete
+# Un artefacto accidental dentro del checkout es drift: reportarlo, no borrarlo
+# ni re-firmarlo desde una skill de validación read-only.
+find "${PROJ_PATH}" -maxdepth 1 -type f \( -name 'page-*.png' -o -name 'page-*.jpeg' -o -name 'page-*.pdf' -o -name 'storage-state-*.json' \) -print
 ```
 
 ### Conservar
 
-- `/home/ryzepeck/webapps/<proyecto>/.playwright_staging/sessions/*.json` (sesiones staging gitignored)
-- `/home/ryzepeck/webapps/<proyecto>/.playwright_prod/sessions/*.json` (sesiones prod gitignored, solo en server)
+- `${XDG_STATE_HOME:-$HOME/.local/state}/vps-ops-toolkit/playwright/<proyecto>/<entorno>/sessions/*.json` (0700/0600, fuera del repo)
 - `frontend/e2e/*.spec.ts` y `frontend/e2e/specs/*.md` si el operador pidió generación persistente (único home E2E del fleet)
 - `.github/chatmodes/` si se ejecutó `init-agents` (avisar al operador para que decida commit)
 

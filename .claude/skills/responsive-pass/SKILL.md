@@ -1,6 +1,6 @@
 ---
 name: responsive-pass
-description: "Mejora continua de responsividad de UN módulo (o una pestaña) de un proyecto del fleet, verificada por /qa. Usar cuando el operador dice 'mejorá la responsividad del módulo X', 'X se rompe en celular/tableta', 'pasada responsive de la pestaña Y', 'el panel no se ve bien en tablet vertical', 'hacé responsive el módulo X', 'revisá cómo queda X en 835/412'. Procedimiento fijo y comparable entre corridas: inventario (estático + en vivo a 412/835/1195/1440/2560, tableta vertical obligatoria) → contraste contra docs/RESPONSIVE_STANDARDS.md → hallazgos por tipo de elemento → propuesta → aplicación (--apply: rama de sesión + PR) → handoff a [[qa]] (flows declarados + guion brief-e2e por ancho) → registro en config/responsive-ledger/. Default diagnóstico. NO usar para escribir/correr tests ni validar un fix ([[qa]]); para ver, validar o debuggear cómo queda la UI a un ancho SIN corregir nada ([[playwright-validation]]); para rediseño visual o cambios funcionales (fuera de alcance: quedan como observaciones); para 'toda la app' de una vez (rechazado: propone el orden por módulo); para un bug funcional ([[debug]]). Sin estándar canónico no corrige (inventaría y propone definirlo); si sólo falta la copia del repo, contrasta contra el canónico del toolkit y pide el sync. Un módulo por corrida, siempre."
+description: "Mejora la responsividad de un módulo o pestaña contra RESPONSIVE_STANDARDS.md, con la matriz de cinco anchos y tableta vertical obligatoria. Usar cuando la interfaz se rompe en celular/tableta o se pide una pasada responsive. Default diagnóstico; --apply corrige layout en la rama de sesión. qa verifica los cambios y el ledger conserva hallazgos y decisiones de beneficio/coste. Excluye rediseños y cambios funcionales."
 argument-hint: "[proyecto] [--module=<id>[/<tab>]] [--apply] [--record-qa] [--uncovered=observe|conservative]"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, AskUserQuestion, EnterWorktree
 ---
@@ -13,6 +13,52 @@ pruebas por ancho para [[qa]]** — no un rediseño, no una suite de tests, no u
 toda la app. La secuencia de fases es fija (Fase 0 → 6) para que dos corridas sean
 comparables, y **la verificación la hace `/qa`, nunca esta skill**: una skill que se da por
 buena a sí misma no está verificando nada.
+
+## Beneficio y límite de la pasada
+
+Usar `workflows/improvement/IMPROVEMENT_STANDARDS.md` del toolkit antes de aplicar.
+Una acción inaccesible, una regresión o una invariante obligatoria incumplida se corrige
+o se declara bloqueada; nunca se posterga por bajo retorno. Un retoque puramente estético
+sin utilidad concreta no justifica otra pasada. Un beneficio menor sí puede justificarla
+si el esfuerzo es `S`, el riesgo `low` y la mejora para el usuario es comprobable.
+
+Registrar `value_assessment: {benefit, effort, change_risk, mandatory, reason, evidence}`
+en el ledger: `benefit=material|minor|unknown`, `effort=S|M|L`, `change_risk=low|medium|high`.
+Menor con esfuerzo/riesgo mayor ⇒ `deferred-low-value`; beneficio incierto ⇒ diagnóstico
+con decisión `needs-evidence`, no «suficiente». Si un módulo reúne varios hallazgos,
+evaluar cada intervención en el reporte y conservar en su registro cualquier obligación
+pendiente: no diferir el módulo entero cuando todavía hay una rotura obligatoria.
+
+El helper deriva el contexto y la decisión sin alterar IDs/estados históricos. Código
+relevante, dependencias o política/estándar cambiados reabren la evaluación; las métricas
+quedan en reportes. Registros históricos sin esta evaluación se revisan antes de aplicar.
+Cuando el módulo inventariado cumple y sólo quedan retoques de poco retorno, avisar
+«Conviene parar en responsividad para <módulo>: <evidencia y motivo>; revisar si cambia
+<condición>» y no editarlo. Rutas/ancho sin inspeccionar o candidatos fuera del cupo
+siguen pendientes; un inventario sin navegador no demuestra suficiencia en vivo.
+
+## Modo delegado por improvement-pass
+
+Con `IMPROVEMENT_CONTEXT` de [[improvement-pass]], heredar `conductor`, `round_id`,
+`project`, `codebase`, `projdir`, `branch`, `base`, `candidate_ids`, `allowed_paths`, `mode`
+y `owns_git=conductor`. Validar proyecto/worktree/rama/base con
+`session-worktree.sh status` y la pertenencia de sesión/PR al conductor; contexto ajeno
+o incoherente ⇒ bloquear antes de escribir. Se mantiene un módulo/pestaña acotado por
+invocación, dentro del máximo de **tres candidatos globales** de la ronda.
+
+Este contrato prevalece sobre menús, creación de worktree y commits/push/PR de las fases
+siguientes. Inventario previo del conductor se reutiliza como hipótesis con referencias
+verificadas; no se barre la app. Devolver sólo el diff asignado, evaluación de valor,
+flows y `brief-e2e` con `round_id` y candidate ID por ítem. Los hallazgos que pertenecen
+a rendimiento se devuelven al conductor para deduplicar, sin escribir otro ledger ni
+invocar `perf-pass`. Git, registros y el único cierre de QA son del conductor.
+
+El helper común
+`bash ~/webapps/vps-ops-toolkit/scripts/improvement/improvement-ledger.sh --show <proyecto> --projdir=<worktree>`
+preserva las referencias al ledger responsive. Su `--record-qa` exige ronda, SHA exacto
+y manifest de ejecuciones de [[qa]], incluida validación E2E en vivo cuando corresponde;
+el último reporte por fecha o una captura nunca valida esta ronda. No ejecutar QA inline
+ni abrir otra rama. Sin este contexto se conservan los modos independientes.
 
 **Declaración de alcance — se imprime SIEMPRE antes de la Fase 1:**
 
@@ -217,11 +263,21 @@ no, el canónico del toolkit), `project_doc` si existe, y las claves `responsive
   `module_paths`) · `observación` (exige cambio funcional/rediseño, toca un componente
   compartido, o contradice el `project_doc`) · `no-cubierto` (el estándar no lo contempla ⇒
   política `--uncovered`, default `observe`).
+- **Peso o carga** (imágenes sin `loading=lazy`/tamaño, tabla que renderiza todas las filas,
+  fetch duplicado entre componentes, import pesado en el layout) es `observación` de
+  rendimiento, no de responsividad: además de listarse en el reporte se anota en el ledger de
+  [[perf-pass]] con `bash ~/webapps/vps-ops-toolkit/scripts/perf/perf-ledger.sh --note <proyecto>`
+  (categoría `frontend/…`, `seen_by: signal:responsive-pass`, evidencia `file:line`), para que
+  entre al `top3` de la próxima pasada de rendimiento.
 
 Sin estándar canónico (`no-canonical`): la tabla se entrega sin Invariante/Clase bajo el
 título "Inventario de roturas" y la corrida salta a la Fase 6 con el módulo en `pending`.
 
 ## Fase 3 — Propuesta
+
+Cerrar `value_assessment` con la evidencia de la Fase 2 antes de proponer aplicación.
+Sólo pasan los elegibles. Registrar los diferidos y qué evidencia falta a los inciertos;
+sin elegibles, ir a la Fase 6 y explicar dónde conviene parar. No crear commits vacíos.
 
 Por hallazgo `corregible`: qué cambia (clase/markup/CSS, usando las variantes y componentes del
 `project_doc` cuando el módulo cae en su alcance — projectapp `/panel/**`: `panel-*` +
@@ -237,26 +293,26 @@ de acá se salta a la Fase 5 (sin escribir).
 
 Precondiciones: `standard≠no-canonical` · `host_status≠wrong-host` · identidad git
 (`git var GIT_COMMITTER_IDENT`; si falla, `user.name`/`user.email` repo-local, nunca
-`--global`) · tree limpio en el clon. Rama y worktree por el protocolo por sesión del
+`--global`) · evaluación de valor vigente y elegible · tree limpio en el worktree de sesión.
+Rama y worktree por el protocolo por sesión del
 CLAUDE.md del proyecto (`git-branch-protocol`); si la sesión YA tiene su worktree/rama, se
 reutiliza:
 
 ```bash
 # pre-entry: corre en el clon principal, antes de EnterWorktree
-TODAY=$(date +%d%m%Y); REPO="$PROJ"; SLUG="<module-slug>"      # admin/accounting → admin-accounting
-BASE="<resolved_branch si pr_state=single; main/master si no>"
-cd "$HOME/webapps/$REPO" && git fetch origin "$BASE" --quiet
-git worktree add "$HOME/webapps/.wt/$REPO/responsive-$SLUG" -b "fix/${TODAY}-responsive-${SLUG}" "origin/$BASE"
-cd "$HOME/webapps/.wt/$REPO/responsive-$SLUG" && git rev-parse --show-toplevel   # debe caer bajo ~/webapps/.wt/
+SLUG="<module-slug>"      # admin/accounting → admin-accounting
+OUT="$(bash "$HOME/webapps/vps-ops-toolkit/scripts/maintenance/session-worktree.sh" \
+       create fix "responsive-$SLUG")"
+echo "$OUT"               # imprime worktree=/branch=/base=/pr_base=
+WT="$(sed -n 's/^worktree=//p' <<<"$OUT")"
+cd "$WT" && git rev-parse --show-toplevel   # debe caer bajo ~/webapps/.wt/
 ```
 
-Claude Code: `EnterWorktree path=$HOME/webapps/.wt/$REPO/responsive-$SLUG` (aprobación
-la primera vez — la ruta cae fuera de `.claude/worktrees/`); Codex: el `cd` de arriba
-basta, todo comando posterior corre con ese workdir. Preferido en vez de los dos `git`
-de arriba: `bash "$HOME/webapps/vps-ops-toolkit/scripts/maintenance/session-worktree.sh"
-create fix "responsive-$SLUG"` — resuelve la base, crea el worktree y enlaza los `.env`
-gitignoreados desde el clon principal (hace falta si la corrida necesita levantar la app
-para el inventario en vivo).
+Claude Code: `EnterWorktree path=$WT` con el path literal impreso (aprobación la
+primera vez — la ruta cae fuera de `.claude/worktrees/`); Codex: el `cd` de arriba
+basta, todo comando posterior corre con ese workdir. El helper resuelve el SHA
+remoto exacto, materializa sólo ese objeto si falta y crea la rama/worktree
+deliberados; no mueve refs/remotes, FETCH_HEAD, tags ni packed-refs del clon.
 
 Edición: sólo los `file:line` de la propuesta; sin dependencias nuevas; sin tocar `*store*`,
 `composables/use*Api*`, `api/`, `router`, `middleware`, `server/`, `backend/`. Si falta el
@@ -355,7 +411,8 @@ validan en el siguiente `/qa --apply` — estado previsto por `/qa`, no un error
    `-2`, `-3`; nunca `.bak.md`), secciones fijas: Alcance · Preflight (estándar versión/sync,
    `inventory_target`, coordenada) · Inventario (matriz ruta×ancho) · Hallazgos por tipo (tabla
    `R-…`) · Cambios aplicados (archivo:línea, commit, PR URL) · Observaciones fuera de alcance ·
-   Flows declarados/a declarar · Guion de pruebas (bloque brief-e2e) · Pendientes con razón ·
+   Flows declarados/a declarar · Guion de pruebas (bloque brief-e2e) · Beneficio y criterio
+   para parar (alcance inspeccionado) · Pendientes con razón ·
    Propuesta de extensión al estándar (si hubo `no-cubierto`). El reporte es inmutable; el
    veredicto de QA vive en el ledger.
 2. **Ledger** (schema y reglas: `config/responsive-ledger/README.md`):
@@ -363,8 +420,15 @@ validan en el siguiente `/qa --apply` — estado previsto por `/qa`, no un error
 ```bash
 bash ~/webapps/vps-ops-toolkit/scripts/responsive/responsive-ledger.sh --record <proyecto> <<'EOF'
 module: <id>
-status: <diagnosed|applied|qa-pending|blocked>     # pending si no hubo estándar
+status: <diagnosed|applied|qa-pending|blocked|deferred-low-value> # pending sin estándar
 report: docs/audits/<YYYY-MM-DD>-<proyecto>-responsive-<slug>.md
+value_assessment:
+  benefit: <material|minor|unknown>
+  effort: <S|M|L>
+  change_risk: <low|medium|high>
+  mandatory: <true|false>
+  reason: "<utilidad y costo del cambio; sin métricas>"
+  evidence: ["<file:line o sección del reporte>"]
 branch: fix/<DDMMYYYY>-responsive-<slug>           # sólo --apply
 pr: <url>                                          # sólo --apply
 flows_declared: [<ids>]                            # sólo --apply
@@ -461,6 +525,10 @@ Tras el reporte, si la sesión es interactiva y NO hubo flags explícitos (gatin
 [[_output-protocol]] §4), UNA AskUserQuestion. `(Recommended)` va en la fila 1 tras un
 `--apply` y en la fila 2 tras un diagnóstico:
 
+Ofrecer aplicar sólo si quedan intervenciones elegibles. Para un módulo suficiente,
+explicar por qué conviene parar y la condición de reapertura; no repetir la pasada sobre
+él. Rutas y módulos sin evaluar siguen pendientes. En modo delegado decide el conductor.
+
 | Opción (label) | description (costo/efecto) | preview (comando exacto) |
 |---|---|---|
 | QA del módulo | /qa autoría + ejecución en vivo de los E<n>; commitea tests en su propia rama | `/qa <proyecto> --apply --layers=e2e` |
@@ -486,6 +554,7 @@ sobre ESTA corrida; el de /qa es una fila aparte):
 | Inventario estático | ✅ | N archivos leídos 1 vez · N breakpoints · N tablas · N modales |
 | Inventario en vivo | ✅ | <local:3000|staging|prod-readonly> · N rutas × 5 anchos (⏭️ sin app · ⏸️ login) |
 | Hallazgos por tipo | ℹ️ | bloqueante N · mayor N · menor N — TAB N · FORM N · NAV N · TAC N |
+| Beneficio | ℹ️ | elegibles <ids> · diferidos por poco retorno <ids> · falta evidencia <ids> · suficiente <alcance y condición de reapertura> |
 | Cambios aplicados | ✅ | N/N corregibles · commit <sha> · PR #n (⏭️ diagnóstico · ⚠️ N bloqueados) |
 | Observaciones fuera de alcance | ℹ️ | N (funcional N · compartido→layout N · no-cubierto N) |
 | Handoff QA | ✅ | N flows declarados/actualizados · guion E1..En · watchlist (⏭️ diagnóstico: guion listo) |
@@ -497,6 +566,7 @@ sobre ESTA corrida; el de /qa es una fila aparte):
 - `/qa <proyecto> --apply --layers=e2e` — guion en `docs/audits/<reporte>`; PR de QA apilado sobre `fix/…-responsive-<slug>`
 - (operador, dev) `cd ~/webapps/.wt/<repo>/responsive-<slug>/frontend && npm ci && npm run dev` — app con el fix para la validación en vivo de /qa
 - `/responsive-pass <proyecto> --module=<id> --record-qa` — tras /qa: registra el veredicto medido en el ledger
+- `/perf-pass <proyecto> --top3` — sólo si la corrida anotó observaciones de peso/carga en el ledger de rendimiento
 - `/responsive-pass <proyecto> --module=<next_suggested>` — siguiente módulo
 - (operador, tras QA) `/merge-queue` — drenar el PR responsive (y el de QA); el worktree
   se retira con `/all-in-base` cuando el PR esté mergeado

@@ -1,6 +1,6 @@
 ---
 name: git-sync
-description: "Sync the current branch: inspecciona stashes existentes (marca obsoletos/viejos), detecta PRs abiertos vía gh CLI y elige target PR-aware (protocolo por sesión: una rama pusheada con PR se sincroniza sólo contra su propio upstream — la base movida se absorbe con merge, nunca rebase; N PRs de sesión son estado normal), luego fetch + rebase + conflict resolution. Dos ejes ortogonales combinables: --all-repos (todos los repos de ESTE host) y --all-vps (el toolkit en TODOS los VPS). Sin flags: el repo del cwd. --all quedó retirado (error) por ambiguo."
+description: "Sync the current branch: inspecciona stashes existentes (marca obsoletos/viejos), detecta PRs abiertos vía gh CLI y elige target PR-aware (protocolo por sesión: una rama pusheada con PR se sincroniza sólo contra su propio upstream — la base movida se absorbe con merge, nunca rebase; N PRs de sesión son estado normal), luego resuelve SHAs remotos exactos + rebase + conflict resolution. Dos ejes ortogonales combinables: --all-repos (todos los repos de ESTE host) y --all-vps (el toolkit en TODOS los VPS). Sin flags: el repo del cwd. --all quedó retirado (error) por ambiguo."
 allowed-tools: Bash, AskUserQuestion
 argument-hint: "[--all-repos (todos los repos de este host)] [--all-vps (todos los VPS del fleet)]"
 ---
@@ -32,17 +32,14 @@ Rebase the current branch onto its parent (`main` / `master`) so it picks up wor
 > No acepta nombres de proyecto individuales — para operar en un repo
 > específico, lanzá Claude Code desde ese repo (o `cd` a él antes de invocar).
 
-> **⚠️ Qué reciben los hosts REMOTOS (`--all-vps`)**: el **core no-interactivo**
-> (`git fetch` + `git rebase --autostash`), **sin** stash inspection, **sin**
-> retargeting PR-aware y **sin** resolución de conflictos — nada de eso se hace a
-> ciegas en un host remoto. Un conflicto ⇒ `git rebase --abort` + reporte, working
-> tree intacto; resolvelo con una sesión en ese host.
+> **⚠️ Qué reciben los hosts REMOTOS (`--all-vps`)**: el toolkit recibe el core
+> no-interactivo de propagación. Los repos de proyecto son árboles desplegados:
+> aun con `--all-repos` se inspeccionan por SHA exacto + behind, pero **no se
+> rebasean ni despliegan**. Actualizarlos requiere el flujo
+> explícito del proyecto y su transacción de Integrity.
 >
-> Target del rebase remoto: el **toolkit** va contra `origin/master` (siempre vive
-> en master); un **repo de proyecto** va contra **su propio upstream (`@{u}`)**,
-> nunca cross-branch — hay clones legítimamente parados en ramas de release
-> (p.ej. `projectapp` en `feat/…` y `gym_project_staging` en `release-august-2026-c`),
-> y rebasarlos sobre master los rompería.
+> El toolkit va contra `origin/master`. Para cada proyecto se informa su propio
+> upstream y el número de commits pendientes; nunca se toca su branch o tree.
 
 ## Cómo invocar este skill
 
@@ -158,9 +155,50 @@ bash ~/webapps/vps-ops-toolkit/scripts/maintenance/session-worktree.sh status
       sin rebase, sin checkout).
     - limpio y en la rama de deploy (el `deploy_branch=` del resolver:
       `bash ~/webapps/vps-ops-toolkit/scripts/maintenance/resolve-work-coordinate.sh --check <repo>`)
-      → lo único permitido: `git fetch` + `git pull --ff-only`.
+      → consultar `refs/heads/<deploy_branch>` con `ls-remote`; si el objeto
+      falta, traer sólo su SHA con `--no-auto-gc --no-tags
+      --no-write-fetch-head`; reportar `deploy pendiente` y delegar a
+      `scripts/deployment/deploy-project.sh --apply`. **Nunca avanzar el clon
+      desplegado desde git-sync.**
     - limpio y en OTRA rama → **reportá y no hagas checkout**: mover la rama del clon
       de deploy es del operador (o de `migrate-project`), no de un sync.
+
+  Para el caso limpio/en-rama-deploy, resolvé el SHA sin variables de shell:
+  sustituí primero `<deploy_branch literal>` por el valor del registro y corré
+  un comando por llamada.
+
+  ```bash
+  GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin 'refs/heads/<deploy_branch literal>'
+  ```
+
+  La salida debe ser una única línea `<SHA> refs/heads/<deploy_branch>`. Copiá su
+  primera columna y escribila literalmente en cada comando siguiente:
+
+  ```bash
+  printf '%s\n' '<DEPLOY_SHA literal>' | grep -Eq '^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$'
+  ```
+  ```bash
+  git cat-file -e '<DEPLOY_SHA literal>^{commit}'
+  ```
+
+  Si `cat-file` retorna no cero, materializá sólo ese objeto y repetí `cat-file`:
+
+  ```bash
+  GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin '<DEPLOY_SHA literal>'
+  ```
+  ```bash
+  git cat-file -e '<DEPLOY_SHA literal>^{commit}'
+  ```
+  ```bash
+  git rev-list --count 'HEAD..<DEPLOY_SHA literal>'
+  ```
+
+  Reportá el número impreso como `deploy pendiente=<N>` y este comando manual,
+  reemplazando ambos placeholders por sus valores literales:
+
+  ```text
+  bash $HOME/webapps/vps-ops-toolkit/scripts/deployment/deploy-project.sh --apply --project=<repo literal> <deploy_branch literal>
+  ```
 
 En los casos de clon principal **guardado**, esta skill **no corre** las Phases 0.5-6
 (stash inspection, rebase, absorción de la base, resolución de conflictos): pasa
@@ -244,8 +282,8 @@ git log --oneline -5
 Esta fase resuelve **dos cosas**: el parent default (`main`/`master`) y el `TARGET`
 real contra el que se va a rebasear, que puede ser:
 
-- `origin/<parent>` (default, comportamiento clásico)
-- `origin/<base-de-integración>` para una rama local sin PR (la release en repos que
+- SHA anunciado de `<parent>` (default)
+- SHA anunciado de `<base-de-integración>` para una rama local sin PR (la release en repos que
   participan del flujo release)
 - **ninguno** para una rama pusheada con PR: sin rebase de base — Phase 4 (su
   upstream) + merge opcional de la base en Phase 5 Case C
@@ -309,29 +347,85 @@ Se decide leyendo el registro, sin bash:
 
 | Situación | `TARGET` | Razón |
 |---|---|---|
-| `branch` = `default_branch` | `origin/<default_branch>` | **Case A** — parado en el parent: `pull --rebase` clásico |
+| `branch` = `default_branch` | SHA de `refs/heads/<default_branch>` | **Case A** — parado en el parent: rebase sobre el tip anunciado |
 | `pr_state` = `OPEN` (rama pusheada con PR, de sesión o release) | **ninguno** | **Case C** — sync sólo contra su upstream; la base (`base` del registro) se absorbe con merge, nunca con rebase |
-| resto (rama local sin PR) | `origin/<base>` | **Case B** — rebase contra su base de integración (la release en repos participantes, el parent en prod-directos) |
+| resto (rama local sin PR) | SHA de `refs/heads/<base>` | **Case B** — rebase contra su base de integración (la release en repos participantes, el parent en prod-directos) |
 
-Asegurá que el ref existe localmente antes de usarlo (sólo Cases A y B):
+Asegurá que el commit anunciado existe localmente antes de usarlo (sólo
+Cases A y B). `<TARGET_BRANCH literal>` sale de la tabla. Reemplazá ese
+placeholder antes de ejecutar la sonda:
 
 ```bash
-git fetch origin <TARGET_BRANCH literal> --quiet
+GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin 'refs/heads/<TARGET_BRANCH literal>'
 ```
 
-Escribí `TARGET`, `TARGET_BRANCH` y la razón **literales** en las Phases 4, 5 y 7 — no
-hay variables que sobrevivan entre bloques, y post-entry tampoco hay `$(...)` que las
-reconstruya.
+La salida debe ser una única línea para esa ref. Copiá la primera columna y
+escribí ese mismo `<TARGET_SHA literal>` en cada llamada posterior:
+
+```bash
+printf '%s\n' '<TARGET_SHA literal>' | grep -Eq '^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$'
+```
+```bash
+git cat-file -e '<TARGET_SHA literal>^{commit}'
+```
+
+Si `cat-file` retorna no cero, traé únicamente el objeto anunciado y verificá
+de nuevo el mismo literal:
+
+```bash
+GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin '<TARGET_SHA literal>'
+```
+```bash
+git cat-file -e '<TARGET_SHA literal>^{commit}'
+```
+
+Conservá en tu registro de la corrida ese SHA literal como `TARGET_SHA`; no hay
+una variable de shell que sobreviva entre bloques.
+
+Escribí `TARGET_SHA`, `TARGET_BRANCH` y la razón **literales** en las Phases 4,
+5 y 7 — no hay variables que sobrevivan entre bloques, y post-entry tampoco hay
+`$(...)` que las reconstruya.
 
 ---
 
-## Phase 3 — Fetch all remote refs
+## Phase 3 — Resolver el SHA exacto del upstream propio
+
+Corré este bloque sólo cuando el registro de Phase 0.1 indica un upstream
+configurado para la rama actual. Si existe upstream pero la sonda no devuelve
+un SHA válido, abortá el sync: continuar con una ref local stale inventaría un
+verde. Una rama local todavía sin upstream salta directamente a Phase 5.
+
+Reemplazá `<rama literal>` por `branch` del registro antes de la llamada:
 
 ```bash
-git fetch origin
+GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin 'refs/heads/<rama literal>'
 ```
 
-This updates both `origin/<parent>` and `origin/<current-branch>` locally.
+Exigí una única línea para esa ref, copiá su primera columna y usá exactamente
+el mismo SHA literal en cada comando:
+
+```bash
+printf '%s\n' '<CURRENT_REMOTE_SHA literal>' | grep -Eq '^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$'
+```
+```bash
+git cat-file -e '<CURRENT_REMOTE_SHA literal>^{commit}'
+```
+
+Si `cat-file` retorna no cero, traé sólo ese objeto y repetí la verificación:
+
+```bash
+GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin '<CURRENT_REMOTE_SHA literal>'
+```
+```bash
+git cat-file -e '<CURRENT_REMOTE_SHA literal>^{commit}'
+```
+
+Si cualquier sonda falla o no devuelve el formato exacto, abortá con
+`ERROR: upstream remoto no evaluable`. Conservá el SHA copiado como el
+`CURRENT_REMOTE_SHA` literal de las fases siguientes.
+
+`ls-remote` no escribe el repo. El fetch opcional materializa sólo el objeto
+inmutable; no mueve `FETCH_HEAD`, refs/remotes, tags ni packed-refs.
 
 ---
 
@@ -339,22 +433,22 @@ This updates both `origin/<parent>` and `origin/<current-branch>` locally.
 
 > **Las Phases 4-6 (rebase, merge de la base, `git add` de conflictos, stash) sólo
 > corren en un worktree de sesión o en `vps-ops-toolkit`.** El clon principal de un
-> repo de proyecto nunca llega hasta acá: Phase 0.1 lo resolvió con `fetch` +
-> `pull --ff-only`, o lo reportó como anomalía.
+> repo de proyecto nunca llega hasta acá: Phase 0.1 lo reportó como current o
+> `deploy pendiente` y delegó cualquier avance al deploy tipado.
 
 **Skip this phase** if the current branch **is** the parent (handled in Phase 5) or if there is no upstream configured.
 
-Otherwise, preview incoming commits from the current branch's own remote (`<rama>` =
-el `branch` literal del registro):
+Otherwise, preview incoming commits from the current branch's own remote usando
+el `<CURRENT_REMOTE_SHA literal>` impreso por Phase 3:
 
 ```bash
-git log --oneline HEAD..origin/<rama> --
+git log --oneline HEAD..<CURRENT_REMOTE_SHA literal> --
 ```
 
 - If empty: nothing to pull from own remote — continue to Phase 5.
-- If there are commits: pull with rebase:
+- If there are commits: rebase onto that immutable remote tip:
   ```bash
-  git pull --rebase origin <rama>
+  git rebase <CURRENT_REMOTE_SHA literal>
   ```
 
 If this rebase stops with conflicts → Phase 6. When it finishes cleanly, continue to Phase 5.
@@ -363,7 +457,7 @@ If this rebase stops with conflicts → Phase 6. When it finishes cleanly, conti
 
 ## Phase 5 — Rebase (o merge) against the resolved `TARGET`
 
-Usa las variables de Phase 2: `TARGET` (default `origin/<parent>`, o la base de
+Usa los literales de Phase 2: `TARGET_SHA` (tip del parent, o de la base de
 integración para ramas locales sin PR, o **vacío** para ramas pusheadas con PR).
 
 Todos los nombres de rama van **literales**, tomados del registro de Phase 0.1.
@@ -371,23 +465,23 @@ Todos los nombres de rama van **literales**, tomados del registro de Phase 0.1.
 **Case A — current branch IS the parent (`main`/`master`):**
 
 ```bash
-git pull --rebase origin <default_branch literal>
+git rebase <TARGET_SHA literal>
 ```
 
-Then skip to Phase 7. (En este caso `TARGET == origin/<default_branch>` siempre.)
+Then skip to Phase 7. (En este caso `TARGET_SHA` es el tip anunciado del parent.)
 
 **Case B — rama local SIN PR (aún no pusheada):**
 
 Preview qué tiene `TARGET` que current no tiene:
 
 ```bash
-git log --oneline HEAD..origin/<base literal> --
+git log --oneline HEAD..<TARGET_SHA literal> --
 ```
 
 - If empty: already up to date with `TARGET` — skip to Phase 7.
 - If there are commits: rebase onto `TARGET`:
   ```bash
-  git rebase origin/<base literal>
+  git rebase <TARGET_SHA literal>
   ```
 
 If the rebase stops with conflicts → Phase 6.
@@ -398,18 +492,50 @@ El sync real ya ocurrió en Phase 4 (su propio upstream). Acá sólo se decide s
 falta **absorber la base** (el `base` del registro — la base del PR — se movió por
 merges de otras sesiones):
 
+Reemplazá `<base literal>` por `base` del registro y ejecutá:
+
 ```bash
-git fetch origin <base literal> --quiet
+GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin 'refs/heads/<base literal>'
+```
+
+La salida debe ser una única línea para esa ref. Copiá su primera columna y
+reutilizá exactamente ese SHA literal:
+
+```bash
+printf '%s\n' '<BASE_SHA literal>' | grep -Eq '^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$'
 ```
 ```bash
-git rev-list --count HEAD..origin/<base literal>
+git cat-file -e '<BASE_SHA literal>^{commit}'
 ```
+
+Si `cat-file` retorna no cero, traé sólo el objeto anunciado y repetí la
+verificación:
+
+```bash
+GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin '<BASE_SHA literal>'
+```
+```bash
+git cat-file -e '<BASE_SHA literal>^{commit}'
+```
+
+Si cualquier sonda falla o el formato no es exacto, abortá con
+`ERROR: base remota no evaluable`. El SHA copiado es el `<BASE_SHA literal>` de
+las llamadas siguientes.
+
+Con el `<BASE_SHA literal>` impreso:
+
+```bash
+git rev-list --count HEAD..<BASE_SHA literal>
+```
+
+Este probe es independiente de `TARGET`: Case C no rebasea contra la base, pero
+sí necesita observar su tip exacto para decidir el merge.
 
 - Imprime `0` → nada que absorber — skip to Phase 7.
 - Imprime >0 → **merge, nunca rebase** (la rama ya está pusheada y el force push está
   denegado en el fleet):
   ```bash
-  git merge --no-edit origin/<base literal>
+  git merge --no-edit <BASE_SHA literal>
   ```
   Conflictos → Phase 6 (resolverlos acá es exactamente "ir resolviendo a medida
   que las otras ramas avanzan"; el squash final del PR se come el merge commit).
@@ -489,9 +615,9 @@ es idempotente.
 **pusheado**. Si `git status -sb` muestra `ahead`, avisá: los hosts remotos se
 rebasan contra el remoto, no contra tu working copy.
 
-Resultados por host: `SYNCED` · `CONFLICT_NEEDS_MANUAL_SYNC` (working tree intacto;
-resolver con una sesión en ese host) · `UNREACHABLE`. Por repo de proyecto:
-`REPO_SYNCED` · `REPO_CONFLICT` · `REPO_SKIP` (sin upstream/clon) · `REPO_FAIL`.
+Resultados por host: `SYNCED` · `CONFLICT_NEEDS_MANUAL_SYNC` (sólo toolkit,
+working tree intacto) · `UNREACHABLE`. Por repo de proyecto: `REPO_CURRENT` ·
+`REPO_DEPLOY_REQUIRED` · `REPO_SKIP` · `REPO_FAIL`; son siempre informativos.
 
 ---
 
@@ -507,7 +633,7 @@ resolver con una sesión en ese host) · `UNREACHABLE`. Por repo de proyecto:
   estado normal. Warnings sólo por: >1 candidato a release (base=default) o
   PRs de sesión fríos (>48h) sin drenar. Nunca bloquear el sync por conteo.
 - **Nunca** rebasear una rama pusheada con PR sobre su base — la base se
-  absorbe con `git merge origin/<base>` (Case C).
+  absorbe con `git merge <BASE_SHA literal>` (Case C).
 
 ---
 
@@ -541,7 +667,7 @@ Reportar siguiendo [[_output-protocol]]. Plantilla específica de `/git-sync`:
 | Phase 0.5 — Stash inspection | ✅ | 0 stashes existentes |
 | Phase 1 — Inspect | ✅ | working tree clean |
 | Phase 2 — Parent + PR target | ✅ | <N> PRs abiertos → target=<TARGET literal> |
-| Phase 3 — Fetch | ✅ | <N> commits nuevos |
+| Phase 3 — Sonda SHA | ✅ | tip exacto; refs/FETCH_HEAD/tags intactos |
 | Phase 4 — Own remote sync | ⏭️ | current es parent (n/a) o sin upstream |
 | Phase 5 — Rebase | ✅ | fast-forward o N commits rebased |
 | Phase 6 — Conflictos | ⏭️ | sin conflictos |

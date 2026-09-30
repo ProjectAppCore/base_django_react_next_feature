@@ -1,0 +1,7 @@
+interface:
+  display_name: "Perf Pass"
+  short_description: "Mejora el rendimiento de un proceso o hasta tres candidatos..."
+  default_prompt: "Use $perf-pass to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

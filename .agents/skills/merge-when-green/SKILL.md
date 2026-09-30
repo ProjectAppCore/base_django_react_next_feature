@@ -341,17 +341,23 @@ else
         [ -n "$RB" ] && [ "$RB" != "$CURRENT" ] && BASE_INT="$RB"
     fi
 fi
-git fetch origin "$BASE_INT" --quiet 2>/dev/null || true
-BASE="origin/$BASE_INT"
+BASE_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin "refs/heads/$BASE_INT" 2>/dev/null || true)"
+BASE_SHA="${BASE_LINE%%[[:space:]]*}"
+if echo "$BASE_SHA" | grep -Eq '^[0-9a-fA-F]{40,64}$'; then
+    git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+      || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$BASE_SHA"
+else
+    BASE_SHA=""
+fi
 LANDED=0; LANDED_HOW=""
 
 # Precondición: sólo se evalúa con el tree limpio. Con cambios sin commitear hay
 # trabajo nuevo por definición — nunca cortocircuitar. Es el vector de falso
 # positivo más probable acá: el `git add` de Phase 1 es SELECTIVO, así que la
 # sesión de al lado pudo dejar archivos sin trackear.
-if [ "$CURRENT" = "HEAD" ] || ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
+if [ "$CURRENT" = "HEAD" ] || [ -z "$BASE_SHA" ] || ! git rev-parse --verify --quiet "$BASE_SHA" >/dev/null; then
     # detached HEAD o sin base remota: no se puede afirmar NADA. Flujo normal.
-    echo "⚠️  no evaluable (detached HEAD o falta $BASE) — sigue el flujo normal."
+    echo "⚠️  no evaluable (detached HEAD o tip remoto ausente) — sigue el flujo normal."
 elif [ -n "$(git status --porcelain)" ]; then
     echo "ℹ️  working tree con cambios — hay trabajo nuevo; sigue el flujo normal."
 elif [ "$CURRENT" = "$BASE_INT" ]; then
@@ -360,9 +366,9 @@ elif [ "$CURRENT" = "$BASE_INT" ]; then
     LANDED=1; LANDED_HOW="la sesión ya está sobre $BASE_INT"
 else
     # Capa 1 — fast path. Cubre --merge, --rebase y la rama ya integrada tal cual.
-    AHEAD="$(git rev-list --count "$BASE..HEAD" 2>/dev/null || echo -1)"
+    AHEAD="$(git rev-list --count "$BASE_SHA..HEAD" 2>/dev/null || echo -1)"
     if [ "$AHEAD" = "0" ]; then
-        LANDED=1; LANDED_HOW="0 commits por delante de $BASE"
+        LANDED=1; LANDED_HOW="0 commits por delante de $BASE_SHA"
     else
         # Capa 2 — squash path. El default del fleet es --squash: la rama mergeada
         # NO queda como ancestro y sus commits cambian de patch-id, así que
@@ -373,9 +379,9 @@ else
         # OJO: sin pipe en la asignación — con `| head -1` el $? sería el de head
         # (siempre 0) y se perdería el rc de git, que es justo lo que distingue
         # "merge limpio" de "conflicto".
-        MT_OUT="$(git merge-tree --write-tree "$BASE" HEAD 2>/dev/null)"; MT_RC=$?
+        MT_OUT="$(git merge-tree --write-tree "$BASE_SHA" HEAD 2>/dev/null)"; MT_RC=$?
         MT="$(printf '%s\n' "$MT_OUT" | head -1)"
-        BASE_TREE="$(git rev-parse "$BASE^{tree}" 2>/dev/null || echo none)"
+        BASE_TREE="$(git rev-parse "$BASE_SHA^{tree}" 2>/dev/null || echo none)"
         if [ "$MT_RC" -eq 0 ] && [ -n "$MT" ] && [ "$MT" = "$BASE_TREE" ]; then
             LANDED=1; LANDED_HOW="mergear a $BASE_INT sería un no-op (mismo árbol)"
         elif [ "$MT_RC" -gt 1 ]; then
@@ -384,7 +390,7 @@ else
             echo "ℹ️  git sin 'merge-tree --write-tree' — detección de squash no disponible."
         fi
         # Señal informativa: parte del trabajo ya está y parte no.
-        EQ="$(git cherry "$BASE" HEAD 2>/dev/null | grep -c '^-' || true)"
+        EQ="$(git cherry "$BASE_SHA" HEAD 2>/dev/null | grep -c '^-' || true)"
         if [ "$LANDED" -eq 0 ] && [ "${EQ:-0}" -gt 0 ]; then
             echo "⚠️  parcial: $EQ de $AHEAD commit(s) ya están en $BASE_INT, el resto no."
             echo "    NO se cortocircuita — sigue el flujo normal para integrar lo que falta."
@@ -394,13 +400,14 @@ fi
 
 if [ "$LANDED" -eq 1 ]; then
     echo "✅ El trabajo de esta sesión YA está en $BASE_INT ($LANDED_HOW)."
+    echo "   base_sha=$BASE_SHA"
 else
     echo "→ Hay trabajo por integrar; sigue a Phase 2."
 fi
 ```
 
 **Sesgo del gate (a propósito, hacia el falso negativo):** un tree sucio, un
-`detached HEAD`, la falta de `origin/<base>`, un conflicto del merge de 3 vías o
+`detached HEAD`, la falta del SHA remoto de `<base>`, un conflicto del merge de 3 vías o
 un git < 2.38 hacen que NO se cortocircuite y siga el flujo normal. Un falso
 positivo dejaría el trabajo del operador sin mergear para siempre; un falso
 negativo sólo cuesta una espera de CI (el comportamiento de antes). No hay flag
@@ -412,32 +419,22 @@ aquel merge, así que **saltá Phases 2-5** — ni PR, ni `--watch`, ni merge.
 
 1. **Evidencia** (el operador quiere saber *dónde* aterrizó su trabajo, no sólo
    que aterrizó). Buscá el PR que lo llevó y, si no hay, el commit de la base.
-   Bloque nuevo ⇒ re-derivar las variables (no persisten; `BASE_INT` con la
-   misma receta de arriba):
+   El bloque anterior imprime `base_sha=` para que el siguiente comando use ese
+   SHA literal (las variables no persisten entre bloques):
    ```bash
    CURRENT="$(git rev-parse --abbrev-ref HEAD)"
    gh pr list --state merged --head "$CURRENT" --limit 1 \
      --json number,url,mergedAt,mergeCommit 2>/dev/null
-   git log "origin/$BASE_INT" --oneline -1
+   git log <sha-base-impreso> --oneline -1
    ```
 2. **Cierre** (equivalente a Phase 6). Depende de DÓNDE está corriendo la sesión:
    - **En un worktree de sesión** (`git rev-parse --show-toplevel` cae bajo
-     `.wt/`): **no** se hace checkout de la base — la base vive checkouteada en
-     el clon principal y git lo rechazaría. Sólo `git fetch origin "$BASE_INT"`
-     y reportar; el retiro del worktree lo hace $all-in-base al cierre.
-   - **En el clon principal** (transicional/legacy): volver al **`branch:` de
-     deploy** del proyecto (el `deploy_branch=` que emite el resolver), NUNCA a
-     la default a ciegas — en clones staging que deployan desde la release, un
-     checkout de la default cambiaría el código del servicio corriendo:
-     ```bash
-     # Escritura legítima del ORQUESTADOR sobre el clon principal: el prefijo
-     # FLEET_ALLOW_MAIN_CLONE_WRITE=1 es el escape del hook PreToolUse (que si no
-     # deniega checkout/pull ahí). Una SESIÓN nunca lo usa.
-     OLD_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-     FLEET_ALLOW_MAIN_CLONE_WRITE=1 git checkout "$DEPLOY_BRANCH" \
-       && FLEET_ALLOW_MAIN_CLONE_WRITE=1 git pull --ff-only origin "$DEPLOY_BRANCH"
-     [ "$OLD_BRANCH" != "$DEPLOY_BRANCH" ] && echo "⏭️  rama local obsoleta: $OLD_BRANCH (NO se borra)"
-     ```
+     `.wt/`): no se hace checkout ni fetch de refs; `base_sha` ya fue
+     sondeado de forma neutra. El retiro lo hace $all-in-base al cierre.
+   - **En el clon principal** (transicional/legacy): también queda intacto. Si
+     su HEAD difiere del tip de `deploy_branch=`, reportá `deploy pendiente` y
+     derivá al operador a `scripts/deployment/deploy-project.sh --apply`; esta
+     skill de merge nunca despliega ni usa el escape del guard.
    La rama local obsoleta se **reporta, NO se borra** — borrarla es decisión del
    operador.
 3. Reportá con el veredicto `⏭️` (ver "Output final").
@@ -600,17 +597,17 @@ El cierre **nunca flipea el checkout del clon principal** (en VPS es el tree del
 servicio corriendo):
 
 - **En un worktree de sesión** (`git rev-parse --show-toplevel` bajo `.wt/`):
-  sólo `git fetch origin "$PR_BASE"` para dejar la ref al día. El worktree de la
+  no se mueve ninguna ref del gitdir compartido. El worktree de la
   **sesión dueña** lo retira ella misma con `$all-in-base` cuando ve su PR ya
   mergeado (`session-worktree.sh remove <slug>`, sin `--force`); los huérfanos los
   junta el **gc del operador**
   (`bash "$HOME/webapps/vps-ops-toolkit/scripts/maintenance/session-worktree.sh" gc --apply`).
   Esta skill no retira worktrees ajenos.
-- **En el clon principal** (operador): volver al `branch:` de deploy del proyecto
-  (`deploy_branch=` del resolver) con el escape del hook —
-  `FLEET_ALLOW_MAIN_CLONE_WRITE=1 git checkout "$DEPLOY_BRANCH"` + `git pull
-  --ff-only` — nunca a la default a ciegas (los clones staging deployan desde la
-  release).
+- **En el clon principal** (operador): dejar checkout y HEAD intactos. Consultar
+  `refs/heads/<deploy_branch>` con `ls-remote`, traer sólo el SHA si falta con el
+  fetch object-only de Phase 1.5 y reportar la distancia. Si hay avance, el
+  próximo paso es el deploy manual tipado (`deploy-project.sh --apply`), nunca un
+  `checkout`/`pull` desde esta skill.
 
 Reportá el PR mergeado + el SHA del merge en la base del PR.
 
@@ -691,11 +688,15 @@ Primero, el equivalente trunk-flow de Phase 1.5 — si `master` ya tiene todo, n
 commit, ni propagación, ni run de CI **de esta corrida** que mirar:
 
 ```bash
-git fetch origin master --quiet 2>/dev/null || true
-if [ -z "$(git status --porcelain)" ] && git merge-base --is-ancestor HEAD origin/master; then
+MASTER_LINE="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --refs origin refs/heads/master 2>/dev/null || true)"
+MASTER_SHA="${MASTER_LINE%%[[:space:]]*}"
+if echo "$MASTER_SHA" | grep -Eq '^[0-9a-fA-F]{40,64}$'; then
+    git cat-file -e "${MASTER_SHA}^{commit}" 2>/dev/null \
+      || GIT_TERMINAL_PROMPT=0 git fetch --no-auto-gc --no-tags --no-write-fetch-head --quiet origin "$MASTER_SHA"
+fi
+if [ -n "$MASTER_SHA" ] && [ -z "$(git status --porcelain)" ] && git merge-base --is-ancestor HEAD "$MASTER_SHA"; then
     # Estaba atrás (otro host ya pusheó): dejar el clon al día igual.
-    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)" ] \
-        || git pull --ff-only origin master
+    [ "$(git rev-parse HEAD)" = "$MASTER_SHA" ] || git merge --ff-only "$MASTER_SHA"
     echo "✅ nada que integrar: master ya contiene todo ($(git rev-parse --short HEAD))."
     echo "   No se commitea, no se propaga (T3) y no se vigila el CI (T4)."
     exit 0
@@ -819,13 +820,12 @@ se commitea. Por cada repo en `REPOS` (lectura desde `$HOME/webapps/<repo>`, sin
 
 1. **Nada que hacer** — `git status --porcelain` vacío **y** sin commits sin
    pushear (`git log @{u}..HEAD`). No generes mensaje ni toques nada; antes de
-   clasificar corré el chequeo de **Phase 1.5** (con su `git fetch` de la base):
+   clasificar corré el chequeo de **Phase 1.5** (sonda SHA ref-neutral):
    - la rama ya está contenida en la base → ⏭️ `skipped:ya-en-base`. Nombrá la
      rama obsoleta (**no la borres**); el clon principal se deja como está (si el
-     operador quiere alinearlo a su `deploy_branch=`, es la escritura de Phase 6
-     con `FLEET_ALLOW_MAIN_CLONE_WRITE=1` — nunca un checkout de la default a
-     ciegas: en clones staging que deployan desde la release cambiaría el código
-     del servicio corriendo).
+     operador quiere desplegar `deploy_branch=`, se deriva a
+     `deploy-project.sh --apply`; esta skill nunca avanza el checkout del
+     servicio).
    - no está → ⏭️ `skipped:sin-cambios`, como hasta ahora.
 2. **Clon principal sucio sobre una rama base** (`main`/`master`/release con
    `dirty>0`) → **⚠️ `skipped:anomalía-clon-principal`**: es trabajo de otra sesión
@@ -1066,9 +1066,9 @@ Reemplazá ✅ por ⚠️/❌/⏸️ según corresponda y agregá `## Next steps
 ```
 
 Reemplazá ✅ por ⚠️/❌/⏸️ según corresponda y agregá `## Next steps`:
-- **Nada que integrar** (T2 cortó: tree limpio + `HEAD` ancestro de `origin/master`)
+- **Nada que integrar** (T2 cortó: tree limpio + `HEAD` ancestro del SHA remoto de `master`)
   → veredicto `⏭️ merge-when-green (toolkit) — master ya contiene todo`, fila nueva
-  `Estado vs origin/master` en ✅ con el SHA corto, y `Commit + push` /
+  `Estado vs master remoto` en ✅ con el SHA corto, y `Commit + push` /
   `Propagación fleet` / `CI master` en ⏭️. Next steps:
   `bash scripts/maintenance/propagate-toolkit-commit.sh --check` (confirmar el fleet)
   y `gh run list --branch master --limit 5` (mirar el CI igual).

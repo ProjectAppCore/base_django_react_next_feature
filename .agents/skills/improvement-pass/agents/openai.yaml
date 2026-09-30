@@ -1,0 +1,7 @@
+interface:
+  display_name: "Improvement Pass"
+  short_description: "Coordina security-pass, maintainability-pass..."
+  default_prompt: "Use $improvement-pass to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

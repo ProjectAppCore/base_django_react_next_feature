@@ -1,6 +1,6 @@
 ---
 name: client-message
-description: "Redacta el par correo + mensaje de WhatsApp para avisarle algo a un cliente: envío de un documento, entrega, respuesta o aprobación. El correo lleva asunto y cuerpo completo; el WhatsApp es breve. Opcionalmente genera el reporte de cambios y guarda ese mismo par como nota privada del documento en el Gestor. Si no se pasa el tema, pregunta proponiendo lo último trabajado. Devuelve texto en español para copiar y pegar; no envía nada."
+description: "Redacta el par correo + mensaje de WhatsApp para avisarle algo a un cliente: envío de un documento, entrega o aprobación ya resuelta. El correo lleva asunto y cuerpo completo; el WhatsApp es breve. Opcionalmente genera el reporte de cambios y guarda ese mismo par como nota privada del documento en el Gestor. Si no se pasa el tema, pregunta proponiendo lo último trabajado. Para analizar y responder un mensaje entrante usa client-response. Devuelve texto en español para copiar y pegar; no envía nada."
 allowed-tools: Bash, Read, Write, AskUserQuestion, mcp__claude_ai_Gmail__search_threads, mcp__claude_ai_Gmail__get_thread, mcp__claude_ai_Gestor_de_Documentos__list_folders, mcp__claude_ai_Gestor_de_Documentos__list_documents, mcp__claude_ai_Gestor_de_Documentos__read_document, mcp__claude_ai_Gestor_de_Documentos__create_folder, mcp__claude_ai_Gestor_de_Documentos__create_document, mcp__claude_ai_Gestor_de_Documentos__update_document
 argument-hint: "[tema del mensaje — ej: 'avisar que se envió el OTROSÍ y resumir qué contiene' | vacío = pregunta]"
 ---
@@ -15,6 +15,11 @@ Esta skill devuelve ese par, en español no técnico, listo para copiar y pegar.
 Opcionalmente encadena el **reporte de cambios** delegando en [[client-report]];
 cuando lo hace, el mismo asunto, correo y WhatsApp quedan como nota privada del
 documento en el Gestor.
+
+Si el punto de partida es un mensaje entrante que exige reconstruir el hilo,
+separar etapas, decidir alcance o pedir aceptación, el flujo correcto es
+[[client-response]]. Esta skill queda para avisos salientes cuyo fondo ya está
+resuelto.
 
 > **La diferencia en una línea: el correo es el documento; el WhatsApp es el
 > golpecito en el hombro.**

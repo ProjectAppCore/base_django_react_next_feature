@@ -10,6 +10,108 @@ quality verdict**, not a report. You run the chain the operator used to paste by
 hand — methodology → flow map → fake data → coverage → junk audit — as ordered
 phases, with production guards wired in, and you **never merge**.
 
+## Beneficio: validación obligatoria y deuda discrecional
+
+Usar `workflows/improvement/IMPROVEMENT_STANDARDS.md` del toolkit para acotar trabajo
+adicional discrecional. «Ya no compensa mejorar» **jamás** exime los tests y gates de
+los cambios aplicados, regresiones, autorización/secretos/pérdida de datos o requisitos
+obligatorios incumplidos. Cobertura porcentual o complejidad de un test por sí solas
+no justifican otra ronda; el test debe detectar un bug concreto según el DoD existente.
+
+La limpieza extra que no afecta esa validación puede diferirse si su beneficio es menor
+y su esfuerzo/riesgo supera `S`/`low`. Guardar motivo y evidencia, junto a la condición
+que la reabriría; beneficio desconocido necesita evidencia, no demuestra suficiencia.
+El mensaje «Conviene parar en QA para <alcance>: <evidencia y motivo>» sólo corresponde
+cuando todas las obligaciones de ese alcance pasaron. Un test sin ejecución, un draft
+E2E, una capa bloqueada o trabajo fuera del cupo nunca se declara validado o agotado.
+
+## Modo delegado: una validación combinada de improvement-pass
+
+`IMPROVEMENT_CONTEXT` de $improvement-pass aporta `conductor`, `round_id`, `project`,
+`codebase`, `projdir`, `branch`, `base`, `candidate_ids`, `allowed_paths`, `mode` y
+`owns_git=conductor`, más los guiones y las capas obligatorias de la ronda. Es contexto
+de skill, no un modo nuevo de `qa-agent.sh`. El conductor extiende `allowed_paths` a
+tests/flow-map requeridos por el Architect; esa extensión no permite refactorizar más
+aplicación ni altera los límites por rol. Se hereda el mismo worktree/rama de sesión:
+comprobar `session-worktree.sh status`, proyecto/remote, rama/base e identidad del
+conductor (si hay PR, su `Sesión:`/`Intención:`). Rama ajena, clon desplegado o mismatch
+⇒ bloquear antes de escribir. Al empezar la autoría se admiten únicamente los diffs
+de aplicación de esta ronda que el conductor identificó y que caen en `allowed_paths`;
+cualquier otro cambio pendiente bloquea autoría, sin adoptarlo. Antes de la ejecución
+final exigir árbol limpio y el commit de aplicación + tests del conductor. No crear
+`qa/<fecha>-…`, menús, PR ni commit propio del toolkit.
+
+Reemplazar en este modo las llamadas al engine por sus variantes con
+`--projdir=<worktree literal>` para auditar **el mismo árbol**. Agregar
+`--run-id=<round_id literal>` a `--check`/`--verify`, no a `--preflight` ni `--gate-hook`.
+El conductor de improvement conserva Git: QA devuelve tests staged, resultado por
+candidate/brief item y bloqueos; el conductor commitea y publica. El cierre único combina
+$security-pass, $maintainability-pass, $observability-pass, $perf-pass y
+$responsive-pass, no cinco rondas independientes. Este contrato prevalece sobre los
+pasos de apertura/landing de las fases 0 y 7; las guardas de producción, calidad y
+autoría por capa siguen vigentes. Sin contexto se conserva el flujo independiente.
+
+Cada guion incorpora `round_id`, candidate ID, capa, comportamiento, entrada, valor
+concreto esperado, bug y referencias leídas. El Architect re-verifica todos los guiones,
+unifica los que prueban el mismo comportamiento y conserva la asociación a cada
+candidato. Se prioriza validar los cambios aplicados y sus casos negativos; luego las
+obligaciones detectadas. La deuda adicional queda separada bajo la política de beneficio.
+Todo candidate ID asignado termina con resultado explícito; no desaparece al deduplicar.
+
+### Evidencia estructurada de la ronda
+
+`--verify` comprueba calidad estática; **no ejecuta las pruebas ni demuestra E2E en vivo**.
+El Verifier ejecuta los comandos y entrega salidas guardadas por esta ronda. Después del
+commit final del conductor, con el tree limpio, asociar la ejecución al SHA completo de
+`git rev-parse HEAD` y emitir este manifest JSON (una entrada por ejecución real). Los
+reportes de ejecución y artefactos referidos son archivos regulares, sin symlinks, dentro
+de un directorio gitignored del mismo worktree; el reporte normal de QA en el toolkit
+los referencia. No usar un reporte toolkit externo como `manifest.report`.
+
+```json
+{
+  "schema": 1,
+  "kind": "improvement-qa",
+  "round_id": "<round_id>",
+  "codebase": "<codebase>",
+  "commit": "<SHA40 probado>",
+  "candidate_ids": ["<id>"],
+  "report": "<directorio gitignored>/<round_id>$qa.md",
+  "executions": [
+    {
+      "layer": "backend",
+      "command": "<comando literal ejecutado>",
+      "exit_code": 0,
+      "executed": true,
+      "report": "<directorio gitignored>/<round_id>$qa.md",
+      "artifact": "<directorio gitignored>/<round_id>/backend-junit.xml",
+      "format": "junit",
+      "live": false,
+      "candidate_ids": ["<id que esta ejecución comprueba>"]
+    }
+  ]
+}
+```
+
+`layer` acepta `backend|frontend-unit|e2e|gate`; `format` acepta
+`junit|pytest-json|playwright-json|gate-json` (`gate-json` sólo para el gate).
+Los artefactos muestran tests reales ejecutados y sus resultados; ni skips-only ni
+collection-only sirven. No fabricar artefactos para que el parser los acepte.
+Los IDs coinciden exactamente con los
+del registro de la ronda y cada candidato debe quedar cubierto por ejecuciones de tests,
+no sólo por el gate. `command` identifica los archivos/casos concretos ejecutados y su
+evidencia enumera los resultados de esos tests; no asociar candidatos a comandos que
+prueban otro comportamiento. Adjuntar el manifest al reporte del engine con
+`--verify <proyecto> --projdir=<worktree> --run-id=<round_id> --files=<tests> --verification=<path.json>`
+y devolverlo al conductor. Éste lo entrega por stdin a
+`scripts/improvement/improvement-ledger.sh --record-qa <proyecto> --projdir=<worktree> --round=<round_id> --commit=<SHA40>`.
+El helper calcula el resultado: capas obligatorias completas, gate y tests ejecutados
+en verde; para E2E requerido, `live=true` en un target local/staging que sirve este SHA.
+Capturas, tags/flows `covered`, autoría o reporte de otra ronda no reemplazan ejecución.
+Si cambia el commit, queda diff o se arregla un test, actualizar la ronda y repetir las
+comprobaciones afectadas antes de asociar una verificación. Errores, falta de ejecución o
+E2E sin app dejan la ronda pendiente/rechazada; nunca escribir `verified` manualmente.
+
 ## Cómo invocar este skill
 
 Gating ($output-protocol §4): (1) explicit flags → run direct, no menu;
@@ -53,9 +155,16 @@ reimplement it.
   false-clean and exits 2 — never a pass. On a clean pass it clears the marker.
 - `qa-agent.sh --gate-hook` → the deterministic Stop-hook backstop (wired in this
   skill's frontmatter). While `<repo>/.qa-gate-pending` exists, ending the turn is
-  BLOCKED (exit 2) until the gate passes over the files it lists.
+  BLOCKED (exit 2) until the gate passes over the files it lists. Integrity
+  excludes exactly that root filename: it is non-executable, short-lived QA
+  coordination metadata, not a deployed-code mutation.
 - `qa-agent.sh --all-repos` / `--all-vps` → fleet sweep, analysis-only (see Fleet
   mode). `--report` is an alias of `--check`.
+- `--projdir=<worktree>` → auditar explícitamente el worktree de la sesión;
+  incompatible con fleet. `--run-id=<id>` separa nombre/header del reporte de la ronda.
+  `--verification=<path.json>` adjunta evidencia estructurada de ejecuciones reales
+  asociadas a esa ronda/commit en `--verify` con `--run-id`/`--projdir`; no ejecuta
+  tests por su cuenta. `--run-id` sólo aplica a `--check`/`--verify`.
 
 ## Roles — dedicated subagents (dispatch by `subagent_type`)
 
@@ -168,6 +277,24 @@ replaces measurement:**
   only ADDS work. No metrics live in memory (a stored number becomes a
   target — history lives in `docs/audits/*-qa.md`).
 
+**`PERF pending` watchlist lines** (written by $perf-pass §5b) point at a
+`brief-perf` script in the toolkit's `docs/audits/`: the Architect reads it and
+plans its items as budget tests in the owning layer (query / fetch / size
+counts — never time), re-verifying every `file:line` this run; the files it
+creates are what `perf-pass --record-qa` later measures. Report them as a
+`Presupuestos perf` row in the final table and add the Next step
+`$perf-pass <proj> --candidate=<id> --record-qa`.
+
+**Handoffs de las cinco pasadas.** Además de `PERF pending` y `RESPONSIVE pending`,
+leer los guiones `brief-security`, `brief-maintainability` y `brief-observability`
+referenciados por la ronda o el watchlist. No requieren tres nuevas capas: permisos/
+inputs/idempotencia suelen ir a backend; transformaciones y manejo de fallos a unit;
+flujos/anchos a E2E. El Architect decide por el comportamiento real y re-verifica
+evidencia. Cada guion termina en un bloque por capa para el Engineer correspondiente,
+conservando candidate ID e ítem de origen. Observaciones sin cambios no cuentan como
+validaciones completadas. En modo delegado, registrar por el helper común y su manifest,
+no mediante el último reporte independiente de perf/responsive.
+
 On `qa_memory=absent` for a repo worth remembering, Phase 7 creates the file
 at the printed path.
 
@@ -175,6 +302,17 @@ at the printed path.
 
 - If `docs/methodology/` is missing or stale, run **methodology-setup** (conductor
   work — no dedicated agent) to build the Memory Bank. Safe anywhere.
+- Mapa de vistas (trabajo del conductor, no del Analyst): sólo si el repo tiene
+  `frontend/config/viewCatalog.js` y la skill $view-map-update está
+  instalada para este runtime (Claude: `.claude/skills/view-map-update/`;
+  Codex: `.agents/skills/view-map-update/`); si no, `⏭️`. Dry-run →
+  `--check --diff` (reporta, no escribe); `--apply` → `--apply --diff` en el
+  worktree de QA: sus cambios entran al commit de Phase 7 junto al flow-map, y
+  los tests de conteos fijados que toque se suman a la unión de
+  `files_touched` del gate (`.qa-gate-pending`/`--verify`). Sus handoffs E2E
+  (escenario responsivo visual sin spec) pasan al Architect en Phase 2 como
+  ítems e2e. Nunca pregunta (hereda este gating), nunca en fleet mode, y si la
+  sesión ya la corrió sobre este mismo diff, cita ese resultado.
 - Flow map: the preflight emits `flow_map_fresh=yes|no`; **if the key is ABSENT,
   the map does not exist** — same action as `no`: dispatch **`qa-analyst`** (it
   preloads `e2e-user-flows-check`) to derive the flow registry from the app's
@@ -295,6 +433,11 @@ of `files_touched` (one repo-relative path per line) to `<repo>/.qa-gate-pending
 From that moment the Stop hook makes it impossible to end the turn until the gate
 passes over those files; Phase 5's `--verify` clears the marker on a clean pass.
 Never delete the marker by hand to "unblock" — fix the findings.
+
+Mutation testing is also worktree-only: `mutation-pilot.sh --run` requires
+`--projdir=<worktree-de-sesion>` and rejects a primary/deployed clone before it
+can seed config, install a dependency or execute mutants. `--plan` stays
+read-only and may inspect the maintained clone.
 
 **E2E needs the running app.** The preflight probes it: `app_reachable=local:<port>
 | staging:<url> | no` (production is NEVER probed nor validated — read-only by
@@ -481,7 +624,7 @@ Reportar siguiendo $output-protocol. Plantilla específica de `$qa`
 |---|---|---|
 | Preflight + coordenada | ✅ | layers=[…] · db=… · rama=<resolved_branch> · on-work-host |
 | Methodology (fase 1) | ⏭️ | docs/methodology fresco (✅ si se regeneró) |
-| Flow-map | ✅ | flow-definitions.json fresco (⏭️ si no aplica) |
+| Flow-map · Mapa de vistas | ✅ | flow-definitions.json fresco (⏭️ si no aplica) · mapa de vistas al día (sólo con mapa; ⚠️ N ajustes en dry-run) |
 | Fake data (fase 3) | ⏭️ | prod: skip silencioso · staging: preguntado/skip-sin-señal |
 | Auditoría cobertura | ⚠️ | junk-only: N · unvalidated: N (drafts sin ejecutar) · missing P1/P2: N · clases error/failure faltantes: N · exempt: N (no son gaps) |
 | Backend (subagente) | ✅ | N tests, valor concreto + "qué bug atrapa"; DJANGO_ENV=production |
@@ -497,6 +640,7 @@ Reportar siguiendo $output-protocol. Plantilla específica de `$qa`
 ## Next steps
 - `bash $HOME/webapps/vps-ops-toolkit/scripts/qa/qa-agent.sh --verify <proj> --files=<spec>` — reconfirmar el gate
 - (operador) `dev-up` + re-`$qa --apply` para VALIDAR los e2e en draft
+- `$perf-pass <proj> --candidate=<id> --record-qa` — sólo si la corrida consumió un puntero `PERF pending`: registra el veredicto medido en el ledger de rendimiento
 - (operador) `$merge-queue` — QA nunca mergea
 - (operador, opcional) `$deploy-and-check` — desplegar (sugerencia, nunca auto)
 ```

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Local Ci"
+  short_description: "Reproduce el CI de un proyecto localmente cuando GitHub..."
+  default_prompt: "Use $local-ci to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

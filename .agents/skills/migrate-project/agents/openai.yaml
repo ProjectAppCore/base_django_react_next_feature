@@ -1,6 +1,6 @@
 interface:
   display_name: "Migrate Project"
-  short_description: "Migra un proyecto Django entre VPS del fleet (20 pasos: git..."
+  short_description: "Audita una migración per-project y recupera rollback/abort..."
   default_prompt: "Use $migrate-project to handle this task with its documented workflow."
 
 policy:

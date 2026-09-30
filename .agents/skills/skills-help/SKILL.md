@@ -76,12 +76,12 @@ is_ignored() { printf '%s' "$IGNORED" | grep -qxF "$1"; }
 scope_override() {
   case "$1" in
     all-projects|incident)                                        echo "🌐" ;;
-    full-audit|server-diagnostic|git-status-report)               echo "🖥️🌐" ;;
+    full-audit|server-diagnostic|git-status-report|vps-cleanup)   echo "🖥️🌐" ;;
     tailscale-connect|init-fleet|bootstrap-ssh-fleet|bootstrap-tailscale-fleet|sync-ai-ecosystems) echo "🖥️" ;;
     migrate-project)                                              echo "🔧🌐" ;;
     mailbox-maintenance)                                          echo "✉️" ;;
     dev-up|dev-down)                                              echo "💻" ;;
-    human)                                                        echo "—" ;;
+    human|where-are-we)                                           echo "—" ;;
     *)                                                            echo "" ;;   # derivar
   esac
 }
@@ -176,13 +176,14 @@ Con los datos crudos de Phase 1 (y Phase 2 si `--all`), Claude arma la salida:
 1. **Agrupar** las skills en categorías legibles (no hay campo de categoría —
    agrupá por propósito). Buckets canónicos — **un bucket vacío NO se imprime**
    (cubren tanto repos de proyecto como el toolkit):
+   - **Mejora transversal** (improvement-pass, security-pass, maintainability-pass, observability-pass, perf-pass, responsive-pass, vuln-audit)
    - **QA & tests** (qa, test-audit, test-quality-gate, coverage ×3, e2e-user-flows-check, fix-broken-tests, new-feature-checklist, playwright-validation, fake-data-refresh)
    - **Git & fleet** (git-sync, git-commit, git-status-report, merge-when-green, pr-green, merge-queue, all-in-base, all-projects, full-audit, deploy-and-check)
    - **Bootstrap & conectividad** (init-fleet, bootstrap-ssh-fleet, bootstrap-tailscale-fleet, tailscale-connect, sync-ai-ecosystems)
-   - **Servidores & incidentes** (server-diagnostic, incident, migrate-project, integrate-new-project)
+   - **Servidores & incidentes** (server-diagnostic, incident, migrate-project, integrate-new-project, vps-cleanup)
    - **Entorno & dev local** (dev-up, dev-down, methodology-setup)
    - **Planning & desarrollo** (plan, plan-task, implement, debug, debugme)
-   - **Contenido & reportes** (client-report, user-walkthrough, human, repo-cleanup, vuln-audit, skills-help)
+   - **Contenido & reportes** (client-report, user-walkthrough, human, where-are-we, repo-cleanup, skills-audit, skills-help)
    - **Buzones** (mailbox-maintenance)
    - **Otras** (cualquiera que no encaje — nunca dejes una skill afuera)
 2. Una **tabla por categoría** con 4 columnas: `| Skill | Ámbito | Args | Alcance |`

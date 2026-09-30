@@ -18,6 +18,10 @@ create siempre genera el par de comunicación, aunque la salida de esta skill si
 siendo el estado del reporte. La coordenada del Gestor (`gestor:` en
 `config/client-comms/clients/<codebase>.yml`) se resuelve y persiste **acá**, no allá.
 
+Una respuesta a un mensaje entrante con discusión de etapa, alcance, aprobación o
+cambios pertenece a [[client-response]]. Esa skill guarda su documento formal
+directamente en ProjectApp y no crea un archivo bajo `docs/reports/`.
+
 **Convención de almacenamiento (fleet-wide):**
 - Carpeta: `docs/reports/` — **versionada en git** (a diferencia de `docs/tmp/`,
   que es para borradores efímeros y está gitignorada). Nota: en

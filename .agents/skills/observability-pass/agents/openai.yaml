@@ -1,0 +1,7 @@
+interface:
+  display_name: "Observability Pass"
+  short_description: "Pasada de observabilidad y tolerancia a fallos de UN..."
+  default_prompt: "Use $observability-pass to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

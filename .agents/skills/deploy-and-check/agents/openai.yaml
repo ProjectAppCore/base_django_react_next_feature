@@ -1,6 +1,6 @@
 interface:
   display_name: "Deploy And Check"
-  short_description: "VPS-only — Deploy a project (any environment). Defaults to..."
+  short_description: "VPS-only — Deploy de un proyecto desde la rama exacta de..."
   default_prompt: "Use $deploy-and-check to handle this task with its documented workflow."
 
 policy:

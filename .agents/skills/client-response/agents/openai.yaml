@@ -1,6 +1,6 @@
 interface:
   display_name: "Client Response"
-  short_description: "Analiza mensajes entrantes de clientes por correo o WhatsApp..."
+  short_description: "Analiza mensajes entrantes de clientes y prepara una..."
   default_prompt: "Use $client-response to handle this task with its documented workflow."
 
 policy:

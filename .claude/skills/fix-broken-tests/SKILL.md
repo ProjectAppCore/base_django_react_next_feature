@@ -1,6 +1,6 @@
 ---
 name: fix-broken-tests
-description: "Fix a specific list of broken tests provided by the user. Runs only the failing tests + a regression subset — never the full suite."
+description: "Fix a specific list of broken tests provided by the user or an authorized QA/local-ci conductor. Runs only the failing tests + a regression subset — never the full suite."
 ---
 
 # Fix Broken Tests
@@ -16,13 +16,19 @@ Sin picker por diseño: no hay flags; el insumo es la lista de tests.
 Gating de datos ([[_output-protocol]] §4): si el operador no pasó la lista de
 tests rotos, pedirla UNA sola vez en texto plano (≤3 bullets: qué tests, capa,
 error observado) — es un dato, no un modo: nunca un picker. Con la lista en
-mano, ejecutar directo. Invocada por [[qa]]/[[merge-when-green]] (fix loop):
+mano, ejecutar directo. Invocada por [[qa]]/[[local-ci]]/[[merge-when-green]] (fix loop):
 hereda su gating, nunca pregunta. Tampoco preguntar en fleet/headless/cron.
+El conductor entrega IDs, capa y errores observados; esa lista vale como insumo
+del usuario. Hereda también el alcance de reparación autorizado y `--check-only`
+cuando corresponda. El conductor conserva el inventario integral; este hijo
+ejecuta únicamente los fallos y su regresión.
 
 ## Restricciones No Negociables
 
 1. **Solo correr los tests que el usuario indicó + regresión del módulo afectado.** Nunca la suite completa.
-2. **No modificar código de producción** salvo que sea estrictamente necesario para que el test sea válido.
+2. **Corrección mínima según causa raíz.** Un test válido puede revelar un defecto
+   real en la aplicación. Si la sesión ya autoriza repararlo, corrige ese defecto;
+   no debilites el test ni cambies el comportamiento acordado para obtener verde.
 3. **No agregar comentarios** al código salvo que el usuario lo pida explícitamente.
 4. **Respetar los estándares de calidad**: consultar `docs/TESTING_QUALITY_STANDARDS.md` antes de tocar cualquier test.
 5. **≤ 3 intentos por test.** Si tras 3 intentos sigue rojo, STOP y reportar con la hipótesis y lo probado (mismo límite que el qa-healer).
@@ -37,8 +43,8 @@ Antes de modificar cualquier test, leer: `docs/TESTING_QUALITY_STANDARDS.md`
 ```bash
 cd backend && source venv/bin/activate
 pytest path/to/test_file.py::TestClass::test_name -v
-# Proyectos con `db: mysql` en projects.yml (engine check de [[backend-test-coverage]]):
-DJANGO_ENV=production pytest path/to/test_file.py::TestClass::test_name -v
+# Verify isolated test settings and the required database engine before running.
+# Never reuse a worktree .env that targets a live database.
 ```
 
 ### Frontend Unit (Jest)
@@ -121,7 +127,7 @@ vecinos, reemplazar el ✅ correspondiente por ❌, omitir la línea ✨ y agreg
 `## Next steps` con el test pendiente, la hipótesis para el siguiente
 intento, y el comando exacto a correr.
 
-Si arreglar el test requiere tocar código de producción: **detenerse y pedir
-aprobación ANTES de aplicar cualquier cambio a código de producción**
-(alineado con qa-healer). Una vez aprobado y aplicado, reportarlo
-explícitamente en una fila adicional con ⚠️.
+Si requiere cambiar código de aplicación, comprueba la autorización existente
+del usuario/conductor. Con autorización, aplica y reporta el arreglo. Sin ella,
+prepara diagnóstico y cambio propuesto, explica la necesidad y pide la decisión
+antes de aplicarlo. Esto no autoriza despliegues ni cambios en servicios reales.
