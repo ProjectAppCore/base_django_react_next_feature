@@ -29,7 +29,7 @@ const submitEmail = () => {
 
 const advanceToCodeStep = async () => {
   submitEmail();
-  await screen.findByPlaceholderText('000000');
+  await screen.findByPlaceholderText('Recovery code');
 };
 
 describe('ForgotPasswordPage', () => {
@@ -54,7 +54,7 @@ describe('ForgotPasswordPage', () => {
       expect(sendPasswordResetCode).toHaveBeenCalledWith('user@example.com');
     });
 
-    expect(screen.getByPlaceholderText('000000')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Recovery code')).toHaveAttribute('maxLength', '64');
     expect(screen.getByText('Verification code sent to your email')).toBeInTheDocument();
   });
 
@@ -94,15 +94,15 @@ describe('ForgotPasswordPage', () => {
 
     await advanceToCodeStep();
 
-    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByPlaceholderText('Recovery code'), { target: { value: 'd4x5z6-0123456789abcdef0123456789abcdef' } });
     fireEvent.change(screen.getByPlaceholderText('New Password'), { target: { value: 'password123' } });
     fireEvent.change(screen.getByPlaceholderText('Confirm New Password'), { target: { value: 'password456' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
     // Bug this catches: a mismatch-validation regression that clears/loses the
-    // already-verified 6-digit code, forcing the user to re-request one.
-    expect(screen.getByPlaceholderText('000000')).toHaveValue('123456');
+    // already-verified recovery code, forcing the user to re-request one.
+    expect(screen.getByPlaceholderText('Recovery code')).toHaveValue('d4x5z6-0123456789abcdef0123456789abcdef');
   });
 
   it('validates password length', async () => {
@@ -115,15 +115,15 @@ describe('ForgotPasswordPage', () => {
 
     await advanceToCodeStep();
 
-    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByPlaceholderText('Recovery code'), { target: { value: 'd4x5z6-0123456789abcdef0123456789abcdef' } });
     fireEvent.change(screen.getByPlaceholderText('New Password'), { target: { value: 'short' } });
     fireEvent.change(screen.getByPlaceholderText('Confirm New Password'), { target: { value: 'short' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
 
     expect(await screen.findByText('Password must be at least 8 characters')).toBeInTheDocument();
     // Bug this catches: a length-validation regression that clears/loses the
-    // already-verified 6-digit code, forcing the user to re-request one.
-    expect(screen.getByPlaceholderText('000000')).toHaveValue('123456');
+    // already-verified recovery code, forcing the user to re-request one.
+    expect(screen.getByPlaceholderText('Recovery code')).toHaveValue('d4x5z6-0123456789abcdef0123456789abcdef');
   });
 
   it('resets password and redirects on success', async () => {
@@ -138,7 +138,7 @@ describe('ForgotPasswordPage', () => {
 
     await advanceToCodeStep();
 
-    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByPlaceholderText('Recovery code'), { target: { value: 'd4x5z6-0123456789abcdef0123456789abcdef' } });
     fireEvent.change(screen.getByPlaceholderText('New Password'), { target: { value: 'password123' } });
     fireEvent.change(screen.getByPlaceholderText('Confirm New Password'), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
@@ -146,7 +146,7 @@ describe('ForgotPasswordPage', () => {
     await waitFor(() => {
       expect(resetPassword).toHaveBeenCalledWith({
         email: 'user@example.com',
-        code: '123456',
+        code: 'd4x5z6-0123456789abcdef0123456789abcdef',
         new_password: 'password123',
       });
     });
@@ -170,7 +170,7 @@ describe('ForgotPasswordPage', () => {
 
     await advanceToCodeStep();
 
-    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByPlaceholderText('Recovery code'), { target: { value: 'd4x5z6-0123456789abcdef0123456789abcdef' } });
     fireEvent.change(screen.getByPlaceholderText('New Password'), { target: { value: 'password123' } });
     fireEvent.change(screen.getByPlaceholderText('Confirm New Password'), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
@@ -188,7 +188,7 @@ describe('ForgotPasswordPage', () => {
 
     await advanceToCodeStep();
 
-    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByPlaceholderText('Recovery code'), { target: { value: 'd4x5z6-0123456789abcdef0123456789abcdef' } });
     fireEvent.change(screen.getByPlaceholderText('New Password'), { target: { value: 'password123' } });
     fireEvent.change(screen.getByPlaceholderText('Confirm New Password'), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));

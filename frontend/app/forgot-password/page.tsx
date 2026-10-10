@@ -104,20 +104,20 @@ export default function ForgotPasswordPage() {
       ) : (
         <form className="mt-6 space-y-4" onSubmit={onResetPassword}>
           <p className="text-sm text-muted-foreground">
-            Enter the 6-digit code sent to <strong>{email}</strong> and your new password.
+            Paste the complete recovery code sent to <strong>{email}</strong> and your new password.
           </p>
 
           <div>
             <input
               className="border border-border rounded px-3 py-2 w-full text-center text-2xl tracking-widest bg-card"
-              placeholder="000000"
+              placeholder="Recovery code"
               type="text"
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              maxLength={6}
+              onChange={(e) => setCode(e.target.value)}
+              maxLength={64}
               required
             />
-            <p className="text-xs text-muted-foreground mt-1">6-digit code from email</p>
+            <p className="text-xs text-muted-foreground mt-1">Copy the complete recovery code from your email</p>
           </div>
 
           <div>

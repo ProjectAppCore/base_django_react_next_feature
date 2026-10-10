@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 import requests
 from django.contrib.auth import get_user_model
+from django.db import OperationalError, connection
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -451,6 +452,7 @@ def test_send_passcode_failure(api_client, monkeypatch):
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert response.json()['error'] == 'Failed to send email'
+    assert user.password_codes.filter(used=False).count() == 0
 
 
 @pytest.mark.django_db
@@ -481,14 +483,14 @@ def test_verify_passcode_rejects_expired_code(api_client):
     """Verifies passcode verification returns 400 when the code was created more than 15 minutes ago."""
     User = get_user_model()
     user = User.objects.create_user(email='expired@example.com', password='pass1234')
-    password_code = PasswordCode.objects.create(user=user, code='111111')
+    password_code = PasswordCode.generate_code(user)
     PasswordCode.objects.filter(id=password_code.id).update(
         created_at=timezone.now() - timedelta(minutes=16)
     )
 
     response = api_client.post(
         reverse('verify_passcode_reset'),
-        {'email': user.email, 'code': '111111', 'new_password': 'newpass'},
+        {'email': user.email, 'code': password_code.code, 'new_password': 'newpass'},
         format='json',
     )
 
@@ -497,25 +499,36 @@ def test_verify_passcode_rejects_expired_code(api_client):
 
 
 @pytest.mark.django_db
-def test_verify_passcode_handles_exception(api_client, monkeypatch):
-    """Verifies passcode verification returns 400 when an unexpected exception occurs during code validation."""
-    User = get_user_model()
-    user = User.objects.create_user(email='boom@example.com', password='pass1234')
-    PasswordCode.objects.create(user=user, code='222222')
+def test_verify_passcode_handles_database_failure(api_client, caplog):
+    """A failed token lookup produces a sanitized diagnostic without a reset."""
+    user = get_user_model().objects.create_user(email='boom@example.com', password='pass1234')
+    password_code = PasswordCode.generate_code(user)
+    original_password = user.password
+    sentinel = f'SENSITIVE {user.email} {password_code.code} proposed-password'
+    caplog.set_level(logging.ERROR, logger=auth_views.__name__)
 
-    def boom(_self):
-        raise Exception('boom')
+    def fail_lookup(execute, sql, params, many, context):
+        if sql.lstrip().upper().startswith('SELECT') and 'base_feature_app_passwordcode' in sql:
+            raise OperationalError(sentinel)
+        return execute(sql, params, many, context)
 
-    monkeypatch.setattr(PasswordCode, 'is_valid', boom)
-
-    response = api_client.post(
-        reverse('verify_passcode_reset'),
-        {'email': user.email, 'code': '222222', 'new_password': 'newpass'},
-        format='json',
-    )
+    with connection.execute_wrapper(fail_lookup):
+        response = api_client.post(reverse('verify_passcode_reset'), {
+            'email': user.email, 'code': password_code.code, 'new_password': 'proposed-password',
+        }, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()['error'] == 'Invalid or expired code'
+    assert 'Password reset failed: error_type=OperationalError' in caplog.text
+    assert sentinel not in caplog.text
+    assert user.email not in caplog.text
+    assert password_code.code not in caplog.text
+    assert 'proposed-password' not in caplog.text
+    assert 'Traceback' not in caplog.text
+    user.refresh_from_db()
+    password_code.refresh_from_db()
+    assert user.password == original_password
+    assert password_code.used is False
 
 
 @pytest.mark.django_db
@@ -523,11 +536,12 @@ def test_verify_passcode_resets_password(api_client):
     """Verifies passcode verification resets the user password and marks the code as used on success."""
     User = get_user_model()
     user = User.objects.create_user(email='reset@example.com', password='pass1234')
-    password_code = PasswordCode.objects.create(user=user, code='333333')
+    password_code = PasswordCode.generate_code(user)
+    PasswordCode.objects.create(user=user, code=password_code.code)
 
     response = api_client.post(
         reverse('verify_passcode_reset'),
-        {'email': user.email, 'code': '333333', 'new_password': 'newpass1'},
+        {'email': user.email, 'code': password_code.code, 'new_password': 'newpass1'},
         format='json',
     )
 
@@ -537,6 +551,7 @@ def test_verify_passcode_resets_password(api_client):
 
     assert password_code.used is True
     assert user.check_password('newpass1') is True
+    assert user.password_codes.filter(used=False).count() == 0
 
 
 @pytest.mark.django_db
@@ -546,7 +561,7 @@ def test_verify_passcode_resets_password(api_client):
 def test_verify_passcode_rejects_invalid_new_password(api_client, new_password):
     """Invalid new passwords preserve the original password and unused reset code."""
     user = get_user_model().objects.create_user(email='weak-reset@example.com', password='pass1234')
-    password_code = PasswordCode.objects.create(user=user, code='444444')
+    password_code = PasswordCode.generate_code(user)
 
     response = api_client.post(
         reverse('verify_passcode_reset'),
@@ -566,7 +581,7 @@ def test_verify_passcode_rejects_invalid_new_password(api_client, new_password):
 def test_verify_passcode_keeps_code_usable_after_password_rejection(api_client):
     """A rejected weak password does not prevent resetting with the same code."""
     user = get_user_model().objects.create_user(email='retry-reset@example.com', password='pass1234')
-    password_code = PasswordCode.objects.create(user=user, code='555555')
+    password_code = PasswordCode.generate_code(user)
 
     rejected = api_client.post(
         reverse('verify_passcode_reset'),
@@ -677,3 +692,60 @@ def test_validate_token_success(api_client):
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()['valid'] is True
+
+
+@pytest.mark.django_db
+def test_failed_email_preserves_later_challenge(api_client, monkeypatch):
+    """An older failed delivery cannot revoke a later reset challenge."""
+    user = get_user_model().objects.create_user(email='later@example.com', password='pass1234')
+    later = {}
+
+    def fail_after_resend(*_args):
+        later['challenge'] = PasswordCode.generate_code(user)
+        return False
+
+    monkeypatch.setattr(auth_views, 'send_password_reset_code', fail_after_resend)
+    response = api_client.post(reverse('send_passcode'), {'email': user.email}, format='json')
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    challenge = later['challenge']
+    challenge.refresh_from_db()
+    assert challenge.is_valid() is True
+    assert list(user.password_codes.filter(used=False).values_list('pk', flat=True)) == [challenge.pk]
+
+
+@pytest.mark.django_db
+def test_verify_passcode_rejects_replay(api_client):
+    """A consumed token cannot overwrite the successfully reset password."""
+    user = get_user_model().objects.create_user(email='replay@example.com', password='pass1234')
+    challenge = PasswordCode.generate_code(user)
+    accepted = api_client.post(reverse('verify_passcode_reset'), {
+        'email': user.email, 'code': challenge.code, 'new_password': 'first-password',
+    }, format='json')
+
+    response = api_client.post(reverse('verify_passcode_reset'), {
+        'email': user.email, 'code': challenge.code, 'new_password': 'second-password',
+    }, format='json')
+
+    assert accepted.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    user.refresh_from_db()
+    assert user.check_password('first-password') is True
+
+
+@pytest.mark.django_db
+def test_verify_invalid_code_does_not_log(api_client, caplog):
+    """An ordinary rejected token does not generate an internal-error log."""
+    user = get_user_model().objects.create_user(email='quiet@example.com', password='pass1234')
+    challenge = PasswordCode.generate_code(user)
+    caplog.set_level(logging.ERROR, logger=auth_views.__name__)
+
+    response = api_client.post(reverse('verify_passcode_reset'), {
+        'email': user.email, 'code': 'invalid-token', 'new_password': 'new-password',
+    }, format='json')
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()['error'] == 'Invalid or expired code'
+    assert 'Password reset failed' not in caplog.text
+    challenge.refresh_from_db()
+    assert challenge.used is False

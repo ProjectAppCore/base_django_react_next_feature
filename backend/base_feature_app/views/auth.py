@@ -3,23 +3,22 @@ Authentication views for user sign up, sign in, and password management.
 """
 import logging
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth.hashers import check_password, make_password
-from django.contrib.auth import get_user_model
-from django.conf import settings
-
 import requests
-
 from base_feature_app.models import PasswordCode
 from base_feature_app.utils.auth_utils import (
-    generate_auth_tokens, 
+    generate_auth_tokens,
     send_password_reset_code,
-    send_verification_code
+    send_verification_code,
 )
 from base_feature_app.views.captcha_views import verify_recaptcha
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import check_password, make_password
+from django.db import transaction
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 
 User = get_user_model()
 
@@ -268,9 +267,12 @@ def send_passcode(request):
     password_code = PasswordCode.generate_code(user)
     
     # Send email
-    success = send_password_reset_code(user, password_code.code)
+    success = send_password_reset_code(password_code.user, password_code.code)
     
     if not success:
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=user.pk)
+            PasswordCode.objects.filter(pk=password_code.pk, used=False).update(used=True)
         return Response(
             {'error': 'Failed to send email'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -304,45 +306,38 @@ def verify_passcode_and_reset_password(request):
         )
     
     try:
-        user = User.objects.get(email=email)
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(email=email)
+            password_code = user.password_codes.filter(code=code, used=False).first()
+            if password_code is not None:
+                password_code.user = user
+            if password_code is None or not password_code.is_valid():
+                return Response(
+                    {'error': 'Invalid or expired code'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not isinstance(new_password, str) or len(new_password) < 8:
+                return Response(
+                    {'error': 'Password must be at least 8 characters'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user.password = make_password(new_password)
+            user.save(update_fields=['password'])
+            user.password_codes.filter(used=False).update(used=True)
     except User.DoesNotExist:
         return Response(
             {'error': 'Invalid email or code'},
-            status=status.HTTP_400_BAD_REQUEST
+            status=status.HTTP_400_BAD_REQUEST,
         )
-    
-    # Find valid code
-    try:
-        password_code = user.password_codes.filter(
-            code=code,
-            used=False
-        ).first()
-        
-        if not password_code or not password_code.is_valid():
-            return Response(
-                {'error': 'Invalid or expired code'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 -- Preserve the generic boundary without exposing exception text.
+        logger.error('Password reset failed: error_type=%s', type(exc).__name__)
         return Response(
             {'error': 'Invalid or expired code'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    if not isinstance(new_password, str) or len(new_password) < 8:
-        return Response(
-            {'error': 'Password must be at least 8 characters'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Update password
-    user.password = make_password(new_password)
-    user.save()
-    
-    # Mark code as used
-    password_code.used = True
-    password_code.save()
-    
     return Response(
         {'message': 'Password reset successfully'},
         status=status.HTTP_200_OK
