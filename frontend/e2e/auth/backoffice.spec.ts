@@ -155,7 +155,7 @@ test.describe('Administrative backoffice access', () => {
     await page.goto('/backoffice');
 
     await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
-    await expect(page.getByRole('alert')).toHaveText('Admin access required.');
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText('Admin access required.');
     await expect(page.getByRole('table')).toHaveCount(0);
     expect(protectedRequests).toHaveLength(0);
     await page.getByRole('link', { name: 'Back to dashboard' }).click();
@@ -224,7 +224,7 @@ test.describe('Administrative backoffice access', () => {
 
     await page.getByRole('link', { name: 'Backoffice', exact: true }).click();
 
-    await expect(page.getByRole('alert')).toHaveText('Could not load backoffice data.');
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText('Could not load backoffice data.');
     await expect(page.getByRole('table')).toHaveCount(0);
     await expect(page.getByText('No data')).toHaveCount(0);
   });
