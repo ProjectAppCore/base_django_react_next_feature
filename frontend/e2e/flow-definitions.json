@@ -229,11 +229,13 @@
         "shared"
       ],
       "priority": "P1",
-      "description": "User navigates to a product detail page and sees title and price",
+      "description": "User views a product detail; invalid or missing IDs show not found, temporary failures offer Retry, and recovery renders the requested product.",
       "expectedSpecs": 1,
       "outcomes": [
         "display",
-        "failure"
+        "error",
+        "failure",
+        "success"
       ]
     },
     "catalog-product-gallery": {
@@ -492,10 +494,13 @@
         "guest"
       ],
       "priority": "P2",
-      "description": "User navigates to /forgot-password and sees email input and send code button",
+      "description": "Guest requests a recovery token, pastes it completely, submits a valid new password and returns to sign-in; invalid tokens and failed email requests remain visible.",
       "expectedSpecs": 1,
       "outcomes": [
-        "display"
+        "display",
+        "success",
+        "error",
+        "failure"
       ]
     }
   }

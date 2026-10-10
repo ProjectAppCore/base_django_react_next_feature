@@ -1,6 +1,26 @@
 # Tasks Plan — Base Django React Next Feature
 
-> Memory Bank · actualizado 2026-10-10 (ronda de calidad del template). Los conteos históricos conservan la fecha de su medición.
+> Memory Bank · actualizado 2026-10-10 (ronda 4 del template). Los conteos históricos conservan la fecha de su medición.
+
+## Ronda 4 — tres causas aprobadas
+
+| Causa | Implementación revisada | Evidencia y cierre |
+|---|---|---|
+| Recuperación mediante token fuerte de hasta 64 caracteres, vigencia 15 minutos y consumo protegido por lock | `af3d6aa` + migración `8fabd09` | Migración y concurrencia focalizadas PASS; aceptación del SHA final en artefactos/PRs de la ronda |
+| Correo: diagnóstico sin datos sensibles, traceback ni stdout; retorno `False` conservado | `af3d6aa` | Tests focalizados implementados; gate/aceptación final en artefactos/PRs de la ronda |
+| Producto: ausencia 404, fallo temporal recuperable, Retry y respuestas obsoletas descartadas | `a85e09a` | Tests unit/E2E implementados; ejecución final en artefactos/PRs de la ronda |
+
+- [x] Diagnóstico de seis frentes sobre `361cf35cbd2e61351ab790405f9c747cef12973c`, sin inventar trabajo.
+- [x] Elegir tres causas de mayor retorno; deduplicación de productos permanece elegible y pendiente por cupo.
+- [x] Verificar la migración con modelos históricos en SQLite `:memory:`: campo 64, invalidación de pendiente y rollback irreversible (`8fabd09`).
+- [x] Preparar MySQL 8.4.11 nuevo y aislado; Django 6.1.1/mysqlclient conecta mediante socket exclusivo, sin networking/MySQLX.
+- [x] Actualizar los seis documentos de la ronda desde la aplicación real; los tres casos E2E de recuperación ya están implementados.
+- [x] Concurrencia MySQL del backend de seguridad: 3 casos aprobados sobre `af3d6aa`, 159,86 s; no sustituye la ejecución del combinado final.
+El resultado de la validación combinada, gate, CI y cierre externo pertenece a los artefactos/PRs de esta ronda. No se afirma éxito futuro ni se registra ese cierre de sesión como deuda funcional permanente.
+
+El generador estándar de Django puede repetir el texto de dos emisiones en el mismo segundo; se garantiza una fila activa y un consumo, no unicidad de valores. Cambiar la contraseña invalida el token anterior. Se conserva ese tradeoff explícito sin ampliar el SUT.
+
+No hay certificación responsive, cuotas persistentes de emisión/verificación ni auditoría global de seguridad. No se reabre la causa de lint acreditada en ronda 3. El informe de decisiones y límites está en `docs/audits/improvement-ronda4-20261010.md`.
 
 ## Ronda de calidad 2026-10-10
 
@@ -80,11 +100,11 @@ Gaps cerrados por la corrida 2026-08-13: los 6 partial (auth-sign-up-form, catal
   frontend permanece en 0, cero pins backend atrasados.
 - [x] Actualizar sqlparse 0.6, Gunicorn 26, Ruff 0.16, jest-dom 7, ESLint 10 y
   TypeScript 7 en commits secuenciales con CI verde.
-- [ ] Producto: rama not-found en BlogDetailPage (issue 7) → habilita rewrite del test marcado.
+- [x] Producto: rama not-found y recuperación de BlogDetailPage (issue histórico 7) resueltas antes de ronda 4; no se reabre esa causa.
 - [ ] Producto: decidir destino de Footer.tsx (issue 8) y remover selectores muertos (issue 9).
 - [ ] Producto: `data-testid` per-card en ProductCard/BlogCard (issue 11).
 - [x] Burn-down de docstrings backend (issue 10) — patrón D212: summary en la línea de apertura; sin cambios de comportamiento ni reglas.
-- [ ] Refrescar `docs/USER_FLOW_MAP.md` desde el código real (qa-analyst) cuando el flow map se toque.
+- [x] Actualizar únicamente recuperación de contraseña y detalle de producto en `docs/USER_FLOW_MAP.md` desde el código combinado real; la validación en vivo queda pendiente del SHA final.
 - [ ] repo-cleanup: eliminar `base_feature_app/urls.py` shadowed y scripts e2e huérfanos.
 - [ ] Corregir la sección Directory Structure de `CLAUDE.md` (content/ → base_feature_app/).
 - [ ] Registrar `db:` y `branch:` de este proyecto en `projects.yml` del toolkit.
