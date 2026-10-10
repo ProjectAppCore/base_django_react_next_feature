@@ -168,9 +168,9 @@ def google_login(request):
         if tokeninfo.status_code == 200:
             payload = tokeninfo.json()
         else:
-            logger.warning('Google tokeninfo rejected credential: status=%s body=%s', tokeninfo.status_code, tokeninfo.text)
+            logger.warning('Google tokeninfo rejected credential: status=%s', tokeninfo.status_code)
     except (requests.RequestException, ValueError) as exc:
-        logger.warning('Google token validation failed: %s', exc)
+        logger.warning('Google token validation failed: error_type=%s', type(exc).__name__)
 
     if payload is not None:
         aud = payload.get('aud', '')
@@ -329,6 +329,12 @@ def verify_passcode_and_reset_password(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    if not isinstance(new_password, str) or len(new_password) < 8:
+        return Response(
+            {'error': 'Password must be at least 8 characters'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     # Update password
     user.password = make_password(new_password)
     user.save()
@@ -369,7 +375,13 @@ def update_password(request):
             {'error': 'Current password is incorrect'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
+    if not isinstance(new_password, str) or len(new_password) < 8:
+        return Response(
+            {'error': 'Password must be at least 8 characters'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     user.password = make_password(new_password)
     user.save()
     

@@ -1,7 +1,9 @@
+import logging
 from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+import requests
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
@@ -302,6 +304,85 @@ def test_google_login_allows_debug_without_payload(api_client, monkeypatch):
 
 
 @pytest.mark.django_db
+@override_settings(DEBUG=False)
+def test_google_login_sanitizes_transport_failure(api_client, monkeypatch, caplog):
+    """Transport failures retain a diagnostic without exposing the credential URL."""
+    credential = 'SYNTHETIC_TRANSPORT_CREDENTIAL'
+    prepared = requests.Request(
+        'GET', 'https://oauth2.googleapis.com/tokeninfo', params={'id_token': credential},
+    ).prepare()
+    failure = requests.ConnectionError(
+        f'Max retries exceeded with url: {prepared.url}', request=prepared,
+    )
+    caplog.set_level(logging.WARNING, logger=auth_views.__name__)
+
+    def fake_get(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(auth_views.requests, 'get', fake_get)
+    response = api_client.post(
+        reverse('google_login'), {'credential': credential}, format='json',
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json()['error'] == 'Invalid Google credential'
+    assert 'Google token validation failed: error_type=ConnectionError' in caplog.text
+    assert credential not in caplog.text
+    assert prepared.url not in caplog.text
+    assert 'Max retries exceeded' not in caplog.text
+    assert 'Traceback' not in caplog.text
+
+
+@pytest.mark.django_db
+@override_settings(DEBUG=False)
+def test_google_login_sanitizes_upstream_rejection(api_client, monkeypatch, caplog):
+    """Upstream rejection logs only its status instead of the response body."""
+    sentinel = 'SYNTHETIC_UPSTREAM_SECRET'
+    caplog.set_level(logging.WARNING, logger=auth_views.__name__)
+
+    def fake_get(*_args, **_kwargs):
+        return DummyResponse(status_code=400, text=sentinel)
+
+    monkeypatch.setattr(auth_views.requests, 'get', fake_get)
+    response = api_client.post(
+        reverse('google_login'), {'credential': 'synthetic-token'}, format='json',
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json()['error'] == 'Invalid Google credential'
+    assert 'Google tokeninfo rejected credential: status=400' in caplog.text
+    assert sentinel not in caplog.text
+
+
+@pytest.mark.django_db
+@override_settings(DEBUG=False)
+def test_google_login_sanitizes_invalid_json(api_client, monkeypatch, caplog):
+    """JSON failures preserve the response contract without logging exception text."""
+    sentinel = 'SYNTHETIC_JSON_SECRET'
+    caplog.set_level(logging.WARNING, logger=auth_views.__name__)
+
+    class InvalidJsonResponse(DummyResponse):
+        """HTTP response whose decoder reports an untrusted error message."""
+
+        def json(self):
+            """Simulate a JSON parsing failure at the HTTP boundary."""
+            raise ValueError(sentinel)
+
+    def fake_get(*_args, **_kwargs):
+        return InvalidJsonResponse()
+
+    monkeypatch.setattr(auth_views.requests, 'get', fake_get)
+    response = api_client.post(
+        reverse('google_login'), {'credential': 'synthetic-token'}, format='json',
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json()['error'] == 'Invalid Google credential'
+    assert 'Google token validation failed: error_type=ValueError' in caplog.text
+    assert sentinel not in caplog.text
+
+
+@pytest.mark.django_db
 def test_send_passcode_requires_email(api_client):
     response = api_client.post(reverse('send_passcode'), {}, format='json')
 
@@ -373,6 +454,7 @@ def test_verify_passcode_rejects_invalid_email(api_client):
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()['error'] == 'Invalid email or code'
 
 
 @pytest.mark.django_db
@@ -427,7 +509,7 @@ def test_verify_passcode_resets_password(api_client):
 
     response = api_client.post(
         reverse('verify_passcode_reset'),
-        {'email': user.email, 'code': '333333', 'new_password': 'newpass'},
+        {'email': user.email, 'code': '333333', 'new_password': 'newpass1'},
         format='json',
     )
 
@@ -436,7 +518,55 @@ def test_verify_passcode_resets_password(api_client):
     user.refresh_from_db()
 
     assert password_code.used is True
-    assert user.check_password('newpass') is True
+    assert user.check_password('newpass1') is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('new_password', [
+    'x', 'newpass', 12345678, ['x'] * 8, {'password': 'newpass1'}, True,
+], ids=['one-character', 'seven-characters', 'integer', 'list', 'object', 'boolean'])
+def test_verify_passcode_rejects_invalid_new_password(api_client, new_password):
+    """Invalid new passwords preserve the original password and unused reset code."""
+    user = get_user_model().objects.create_user(email='weak-reset@example.com', password='pass1234')
+    password_code = PasswordCode.objects.create(user=user, code='444444')
+
+    response = api_client.post(
+        reverse('verify_passcode_reset'),
+        {'email': user.email, 'code': password_code.code, 'new_password': new_password},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()['error'] == 'Password must be at least 8 characters'
+    user.refresh_from_db()
+    password_code.refresh_from_db()
+    assert user.check_password('pass1234') is True
+    assert password_code.used is False
+
+
+@pytest.mark.django_db
+def test_verify_passcode_keeps_code_usable_after_password_rejection(api_client):
+    """A rejected weak password does not prevent resetting with the same code."""
+    user = get_user_model().objects.create_user(email='retry-reset@example.com', password='pass1234')
+    password_code = PasswordCode.objects.create(user=user, code='555555')
+
+    rejected = api_client.post(
+        reverse('verify_passcode_reset'),
+        {'email': user.email, 'code': password_code.code, 'new_password': 'x'},
+        format='json',
+    )
+    response = api_client.post(
+        reverse('verify_passcode_reset'),
+        {'email': user.email, 'code': password_code.code, 'new_password': 'newpass1'},
+        format='json',
+    )
+
+    assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.status_code == status.HTTP_200_OK
+    user.refresh_from_db()
+    password_code.refresh_from_db()
+    assert user.check_password('newpass1') is True
+    assert password_code.used is True
 
 
 @pytest.mark.django_db
@@ -478,13 +608,34 @@ def test_update_password_success(api_client):
 
     response = api_client.post(
         reverse('update_password'),
-        {'current_password': 'pass1234', 'new_password': 'newpass'},
+        {'current_password': 'pass1234', 'new_password': 'newpass1'},
         format='json',
     )
 
     assert response.status_code == status.HTTP_200_OK
     user.refresh_from_db()
-    assert user.check_password('newpass') is True
+    assert user.check_password('newpass1') is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('new_password', [
+    'x', 'newpass', 12345678, ['x'] * 8, {'password': 'newpass1'}, True,
+], ids=['one-character', 'seven-characters', 'integer', 'list', 'object', 'boolean'])
+def test_update_password_rejects_invalid_new_password(api_client, new_password):
+    """Invalid new passwords cannot replace an authenticated user's password."""
+    user = get_user_model().objects.create_user(email='weak-update@example.com', password='pass1234')
+    api_client.force_authenticate(user=user)
+
+    response = api_client.post(
+        reverse('update_password'),
+        {'current_password': 'pass1234', 'new_password': new_password},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()['error'] == 'Password must be at least 8 characters'
+    user.refresh_from_db()
+    assert user.check_password('pass1234') is True
 
 
 @pytest.mark.django_db
