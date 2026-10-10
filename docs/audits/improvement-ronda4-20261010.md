@@ -50,6 +50,8 @@ El entorno 8.0.46 anterior se detuvo limpiamente: Django 6.1.1 exige MySQL≥8.4
 
 ## Protocolo de QA final
 
+El Auditor detectó un caso nuevo de fallo SQL con diez aserciones frente al máximo de siete y dos contratos observables. El orquestador ordenó al dueño seguridad separar únicamente respuesta/rollback y diagnóstico saneado, conservando todas las comprobaciones. Es cumplimiento de las reglas existentes en tests nuevos; no se amplía a deuda previa ni se añade una causa. El caso E2E de fallo de red de producto recibió interacción Retry y recuperación observable en `55a56f1a414bb0c3229cf6c294a81ed86dc6ec26`, resolviendo `no_user_interaction` sin excepciones de calidad.
+
 Una sola ronda QA combinada, con Analyst/Architect/Auditor/Verifier lectores; seguridad y observabilidad ya son dueños de sus tests. Venv `/tmp/base-template-ronda2-venv`; Node24.20.0/npm11.19.0. Archivos/casos explícitos, máximo veinte casos por ejecución, tres comandos por ciclo, dos specs E2E; ninguna suite completa local. `PYTHON_DOTENV_DISABLED=1`, DBs sintéticas, correo memoria, puertos exclusivos y sin `manage.py migrate`.
 
 Los comandos `qa-agent.sh --check/--verify` escriben reportes bajo el toolkit. La instrucción del operador lo prohíbe: se conserva `--preflight` de lectura y se usan las mismas herramientas subyacentes de flow audit, gate y validación tipada, con artefactos del proyecto. No se modifica el helper para esconder esa adaptación.
