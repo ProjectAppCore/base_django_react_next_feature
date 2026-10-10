@@ -1,3 +1,5 @@
+"""Verify product serializer gallery URLs and missing-gallery responses."""
+
 import io
 from types import SimpleNamespace
 
@@ -24,6 +26,7 @@ def _placeholder_image(name='placeholder.webp'):
 
 @pytest.mark.django_db
 def test_product_list_serializer_gallery_urls_empty_without_request():
+    """Product list serialization omits gallery URLs without a request."""
     gallery = Library.objects.create(title='Gallery')
     Attachment.objects.create(library=gallery, file=_placeholder_image(), original_name='placeholder.webp', rank=0)
     product = Product.objects.create(
@@ -65,6 +68,7 @@ def test_product_list_serializer_includes_gallery_urls(monkeypatch, tmp_path):
 
 @pytest.mark.django_db
 def test_product_serializer_returns_empty_without_request():
+    """Product serialization returns an empty gallery without a request."""
     gallery = Library.objects.create(title='Gallery')
     product = Product.objects.create(
         title='P',
@@ -82,6 +86,7 @@ def test_product_serializer_returns_empty_without_request():
 
 @pytest.mark.django_db
 def test_product_serializer_returns_empty_without_gallery():
+    """Product serialization returns an empty gallery when no library exists."""
     factory = APIRequestFactory()
     request = factory.get('/api/products/')
 
@@ -93,6 +98,7 @@ def test_product_serializer_returns_empty_without_gallery():
 
 @pytest.mark.django_db
 def test_product_detail_serializer_returns_empty_without_request():
+    """Product detail serialization returns an empty gallery without a request."""
     gallery = Library.objects.create(title='Gallery')
     product = Product.objects.create(
         title='P',
@@ -110,6 +116,7 @@ def test_product_detail_serializer_returns_empty_without_request():
 
 @pytest.mark.django_db
 def test_product_detail_serializer_returns_empty_without_gallery():
+    """Product detail serialization returns an empty gallery without a library."""
     factory = APIRequestFactory()
     request = factory.get('/api/products/')
 
@@ -121,6 +128,7 @@ def test_product_detail_serializer_returns_empty_without_gallery():
 
 @pytest.mark.django_db
 def test_product_list_serializer_returns_empty_without_gallery():
+    """Product list serialization returns an empty gallery without a library."""
     factory = APIRequestFactory()
     request = factory.get('/api/products/')
 

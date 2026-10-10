@@ -1,3 +1,5 @@
+"""Verify list and create endpoint staff permissions."""
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -6,6 +8,7 @@ from rest_framework import status
 
 @pytest.fixture
 def staff_user(db):
+    """Create a staff account authorized to exercise protected endpoints."""
     User = get_user_model()
     user = User.objects.create_user(email='staff@example.com', password='pass1234')
     user.is_staff = True
@@ -42,6 +45,7 @@ def customer_client(api_client, db, settings):
 
 @pytest.mark.django_db
 def test_users_list_requires_staff(api_client):
+    """The user list endpoint rejects nonstaff users."""
     url = reverse('user-list')
     response = api_client.get(url)
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -50,6 +54,7 @@ def test_users_list_requires_staff(api_client):
 
 @pytest.mark.django_db
 def test_users_list_success_for_staff(staff_client, staff_user):
+    """Staff users receive a successful user list response."""
     url = reverse('user-list')
     response = staff_client.get(url)
     assert response.status_code == status.HTTP_200_OK
@@ -58,6 +63,7 @@ def test_users_list_success_for_staff(staff_client, staff_user):
 
 @pytest.mark.django_db
 def test_products_create_requires_staff(api_client):
+    """Product creation rejects users without staff permissions."""
     url = reverse('products')
     response = api_client.post(url, {}, format='json')
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -65,6 +71,7 @@ def test_products_create_requires_staff(api_client):
 
 @pytest.mark.django_db
 def test_blogs_create_requires_staff(api_client):
+    """Blog creation rejects users without staff permissions."""
     url = reverse('blogs')
     response = api_client.post(url, {}, format='json')
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -72,6 +79,7 @@ def test_blogs_create_requires_staff(api_client):
 
 @pytest.mark.django_db
 def test_sales_list_requires_staff(api_client):
+    """The sale list endpoint rejects nonstaff users."""
     url = reverse('sale-list')
     response = api_client.get(url)
     assert response.status_code == status.HTTP_403_FORBIDDEN

@@ -1,3 +1,5 @@
+"""Verify sale creation and protected detail endpoint permissions."""
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -47,11 +49,13 @@ def staff_client(api_client, db, settings):
 
 @pytest.fixture
 def gallery(db):
+    """Create an image gallery for the sale's product fixture."""
     return Library.objects.create(title='Permission Test Gallery')
 
 
 @pytest.fixture
 def product(gallery):
+    """Create a product used by the endpoint response tests."""
     return Product.objects.create(
         title='Permission Product',
         category='Cat',
@@ -64,6 +68,7 @@ def product(gallery):
 
 @pytest.fixture
 def sale(product):
+    """Create a sale for protected sale-detail requests."""
     sold = SoldProduct.objects.create(product=product, quantity=2)
     s = Sale.objects.create(
         email='buyer@example.com',
@@ -78,6 +83,7 @@ def sale(product):
 
 @pytest.mark.django_db
 def test_sale_detail_requires_staff(api_client, sale):
+    """Sale detail access rejects users without staff permissions."""
     response = api_client.get(reverse('sale-detail', kwargs={'sale_id': sale.id}))
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -86,6 +92,7 @@ def test_sale_detail_requires_staff(api_client, sale):
 
 @pytest.mark.django_db
 def test_user_detail_requires_staff(api_client):
+    """User detail access rejects users without staff permissions."""
     User = get_user_model()
     user = User.objects.create_user(email='target@example.com', password='pass1234')
 
@@ -171,6 +178,7 @@ def test_admin_detail_rejects_invalid_jwt(api_client, route, lookup):
 
 @pytest.mark.django_db
 def test_create_sale_returns_201_with_valid_payload(api_client, product):
+    """A valid public sale request returns a created response."""
     payload = {
         'email': 'buyer@example.com',
         'address': 'Addr',

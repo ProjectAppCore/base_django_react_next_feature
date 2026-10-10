@@ -1,3 +1,5 @@
+"""Verify test-runner resume state, reporting, and suite execution."""
+
 from __future__ import annotations
 
 import builtins
@@ -26,6 +28,7 @@ def make_step_result(
     returncode: int = 0,
     log_path: Path | None = None,
 ) -> run_tests_all_suites.StepResult:
+    """Build a suite execution result with explicit reporting metadata."""
     return run_tests_all_suites.StepResult(
         name=name,
         command=["cmd", name],
@@ -100,12 +103,14 @@ def _make_tracking_executor(state: dict):
 
 
 def test_load_resume_state_returns_none_when_missing(tmp_path):
+    """Resume-state loading returns no state when its file is absent."""
     summary_path = tmp_path / run_tests_all_suites.RESUME_FILENAME
 
     assert run_tests_all_suites.load_resume_state(summary_path) is None
 
 
 def test_select_suites_for_resume_filters_non_ok():
+    """Resume selection includes suites whose previous execution was not successful."""
     suite_runners = [
         ("backend", partial(make_step_result, "backend")),
         ("frontend-unit", partial(make_step_result, "frontend-unit")),
@@ -127,6 +132,7 @@ def test_select_suites_for_resume_filters_non_ok():
 
 
 def test_resolve_resume_status_returns_unknown_for_missing_record():
+    """A missing suite resume record resolves to unknown status."""
     entry = None
 
     result = run_tests_all_suites.resolve_resume_status(entry)
@@ -135,18 +141,21 @@ def test_resolve_resume_status_returns_unknown_for_missing_record():
 
 
 def test_resolve_resume_status_uses_status_value():
+    """An explicit resume status takes precedence in status resolution."""
     entry = {"status": "failed", "returncode": 0}
 
     assert run_tests_all_suites.resolve_resume_status(entry) == "failed"
 
 
 def test_resolve_resume_status_uses_returncode_when_status_missing():
+    """A resume return code supplies status when no explicit status exists."""
     entry = {"returncode": 0}
 
     assert run_tests_all_suites.resolve_resume_status(entry) == "ok"
 
 
 def test_build_suite_summary_sets_log_path_string(tmp_path):
+    """Suite summaries serialize the execution log path as a string."""
     log_path = tmp_path / "reports" / "suite.log"
     result = make_step_result("backend", log_path=log_path)
 
@@ -156,6 +165,7 @@ def test_build_suite_summary_sets_log_path_string(tmp_path):
 
 
 def test_resolve_backend_report_root_prefers_core_app(tmp_path):
+    """Backend report discovery prefers the configured core application."""
     backend_root = tmp_path / "backend"
     core_root = backend_root / "core_app"
     base_root = backend_root / "base_feature_app"
@@ -166,6 +176,7 @@ def test_resolve_backend_report_root_prefers_core_app(tmp_path):
 
 
 def test_resolve_backend_report_root_fallback_to_base_feature_app(tmp_path):
+    """Backend report discovery falls back to the template application."""
     backend_root = tmp_path / "backend"
     base_root = backend_root / "base_feature_app"
     base_root.mkdir(parents=True)
@@ -238,12 +249,14 @@ def _build_backend_summary_lines(tmp_path, monkeypatch):
 
 
 def test_read_backend_summary_returns_five_metric_lines(tmp_path, monkeypatch):
+    """Backend summaries include all five reported metrics."""
     lines = _build_backend_summary_lines(tmp_path, monkeypatch)
 
     assert len(lines) == 5
 
 
 def test_read_backend_summary_statements_metric(tmp_path, monkeypatch):
+    """Backend summaries preserve the statement coverage metric."""
     lines = _build_backend_summary_lines(tmp_path, monkeypatch)
 
     assert "Statements:" in lines[0]
@@ -251,6 +264,7 @@ def test_read_backend_summary_statements_metric(tmp_path, monkeypatch):
 
 
 def test_read_backend_summary_branches_metric(tmp_path, monkeypatch):
+    """Backend summaries preserve the branch coverage metric."""
     lines = _build_backend_summary_lines(tmp_path, monkeypatch)
 
     assert "Branches:" in lines[1]
@@ -258,6 +272,7 @@ def test_read_backend_summary_branches_metric(tmp_path, monkeypatch):
 
 
 def test_read_backend_summary_functions_metric(tmp_path, monkeypatch):
+    """Backend summaries preserve the function coverage metric."""
     lines = _build_backend_summary_lines(tmp_path, monkeypatch)
 
     assert "Functions:" in lines[2]
@@ -265,6 +280,7 @@ def test_read_backend_summary_functions_metric(tmp_path, monkeypatch):
 
 
 def test_read_backend_summary_lines_metric(tmp_path, monkeypatch):
+    """Backend summaries preserve the line coverage metric."""
     lines = _build_backend_summary_lines(tmp_path, monkeypatch)
 
     assert "Lines:" in lines[3]
@@ -272,6 +288,7 @@ def test_read_backend_summary_lines_metric(tmp_path, monkeypatch):
 
 
 def test_read_backend_summary_total_metric(tmp_path, monkeypatch):
+    """Backend summaries preserve the combined coverage metric."""
     lines = _build_backend_summary_lines(tmp_path, monkeypatch)
 
     assert "Total:" in lines[4]
@@ -279,6 +296,7 @@ def test_read_backend_summary_total_metric(tmp_path, monkeypatch):
 
 
 def test_read_flow_summary_formats_flow_percent(tmp_path):
+    """Flow summaries format the covered-flow percentage for display."""
     summary_path = tmp_path / "e2e-results" / "flow-coverage.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(
@@ -306,6 +324,7 @@ def test_read_flow_summary_formats_flow_percent(tmp_path):
 
 
 def test_run_backend_triggers_erase_when_enabled(tmp_path, monkeypatch):
+    """Backend execution erases existing report data when requested."""
     calls = []
     captured = {}
     (tmp_path / "base_feature_app").mkdir()
@@ -338,6 +357,7 @@ def test_run_backend_triggers_erase_when_enabled(tmp_path, monkeypatch):
 
 
 def test_run_backend_skips_erase_when_disabled(tmp_path, monkeypatch):
+    """Backend execution preserves report data when erasure is disabled."""
     calls = []
     captured = {}
     (tmp_path / "base_feature_app").mkdir()
@@ -369,6 +389,7 @@ def test_run_backend_skips_erase_when_disabled(tmp_path, monkeypatch):
 
 
 def test_erase_backend_data_invokes_report_module(tmp_path, monkeypatch):
+    """Report erasure invokes the backend reporting module."""
     captured = {}
 
     class FakeCoverage:
@@ -389,6 +410,7 @@ def test_erase_backend_data_invokes_report_module(tmp_path, monkeypatch):
 
 
 def test_build_log_separator_includes_suite_metadata():
+    """The execution-log separator includes the suite's identifying metadata."""
     header = run_tests_all_suites.build_log_separator("run123", "backend", ["pytest", "-q"])
 
     assert "Run ID: run123" in header
@@ -398,6 +420,7 @@ def test_build_log_separator_includes_suite_metadata():
 
 
 def test_record_suite_result_writes_resume_file(tmp_path):
+    """Recording a suite result persists its resume-state file."""
     resume_path = tmp_path / "reports" / run_tests_all_suites.RESUME_FILENAME
     backend_log = tmp_path / "backend.log"
     result_backend = make_step_result("backend", log_path=backend_log)
@@ -443,6 +466,7 @@ def test_run_command_writes_log_separator(tmp_path):
 
 
 def test_extract_backend_report_table_reads_header(tmp_path):
+    """Backend report extraction preserves the table header."""
     log_path = tmp_path / "backend.log"
     log_path.write_text(
         "\n".join(

@@ -1,3 +1,5 @@
+"""Verify user form password handling."""
+
 import builtins
 
 import pytest
@@ -147,6 +149,7 @@ def test_user_creation_form_saves_hashed_password():
 
 @pytest.mark.django_db
 def test_user_change_form_returns_initial_password():
+    """The user change form preserves the initial encoded password."""
     user = User.objects.create_user(email='change@example.com', password='pass1234')
     form = UserChangeForm(instance=user, initial={'password': user.password})
 

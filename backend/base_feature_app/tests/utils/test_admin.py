@@ -1,3 +1,5 @@
+"""Verify admin deletion, display, and impersonation permissions."""
+
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
@@ -68,6 +70,7 @@ def _request_with_messages(user):
 
 @pytest.mark.django_db
 def test_password_code_admin_disables_add_permission():
+    """Password codes cannot be manually added through the admin."""
     admin = PasswordCodeAdmin(PasswordCode, admin_site)
     request = RequestFactory().get('/admin/')
 
@@ -76,6 +79,7 @@ def test_password_code_admin_disables_add_permission():
 
 @pytest.mark.django_db
 def test_blog_admin_delete_queryset_removes_objects():
+    """The blog admin bulk deletion removes selected blog records."""
     library = Library.objects.create(title='Blog Library')
     blog = Blog.objects.create(
         title='Test Blog',
@@ -158,6 +162,7 @@ def test_admin_site_custom_sections():
 
 @pytest.mark.django_db
 def test_user_admin_login_as_link_renders_admin_url():
+    """The impersonation link points to the target user's admin login action."""
     user = User.objects.create_user(email='target@example.com', password='pass1234')
     admin = BaseFeatureUserAdmin(User, admin_site)
 
@@ -169,6 +174,7 @@ def test_user_admin_login_as_link_renders_admin_url():
 
 @pytest.mark.django_db
 def test_user_admin_login_as_redirects_to_frontend(settings):
+    """Successful admin impersonation redirects to the frontend with a token."""
     factory = RequestFactory()
     admin_user = User.objects.create_superuser(email='admin@example.com', password='pass1234')
     target_user = User.objects.create_user(email='target@example.com', password='pass1234')
@@ -188,6 +194,7 @@ def test_user_admin_login_as_redirects_to_frontend(settings):
 
 @pytest.mark.django_db
 def test_user_admin_login_as_requires_active_superuser():
+    """Admin impersonation requires an active superuser operator."""
     factory = RequestFactory()
     regular_user = User.objects.create_user(email='user@example.com', password='pass1234')
     target_user = User.objects.create_user(email='target@example.com', password='pass1234')
@@ -216,6 +223,7 @@ def test_user_admin_login_as_requires_active_superuser():
     ),
 ])
 def test_user_admin_login_as_blocks_ineligible_target(build_target):
+    """Admin impersonation rejects an ineligible target user."""
     admin_user = User.objects.create_superuser(email='admin@example.com', password='pass1234')
     target_user = build_target()
     request = _request_with_messages(admin_user)

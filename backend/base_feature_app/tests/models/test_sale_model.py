@@ -1,3 +1,5 @@
+"""Verify sale totals and sold-product display."""
+
 import pytest
 from django_attachments.models import Library
 
@@ -20,6 +22,7 @@ def _create_sale(email):
 
 @pytest.mark.django_db
 def test_sold_product_str_includes_title_and_quantity():
+    """The sold-product string identifies the product and purchased quantity."""
     gallery = Library.objects.create(title='Gallery')
     product = Product.objects.create(
         title='Widget',

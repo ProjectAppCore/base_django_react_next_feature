@@ -1,3 +1,5 @@
+"""Verify public content responses and sale-input validation."""
+
 import pytest
 from django.urls import reverse
 from django_attachments.models import Library
@@ -8,11 +10,13 @@ from base_feature_app.models import Blog, Product, Sale, SoldProduct
 
 @pytest.fixture
 def library(db):
+    """Create an image library for public content serialization."""
     return Library.objects.create(title='Test Library')
 
 
 @pytest.fixture
 def product(db, library):
+    """Create a product used by the endpoint response tests."""
     return Product.objects.create(
         title='Test Product',
         category='Test Category',
@@ -25,6 +29,7 @@ def product(db, library):
 
 @pytest.fixture
 def blog(db, library):
+    """Create a blog associated with the image-library fixture."""
     return Blog.objects.create(
         title='Test Blog',
         description='Test Description',
@@ -35,6 +40,7 @@ def blog(db, library):
 
 @pytest.mark.django_db
 def test_product_list_success(api_client, product):
+    """The public product list returns a successful response."""
     url = reverse('product-list')
     response = api_client.get(url)
     assert response.status_code == status.HTTP_200_OK
@@ -44,6 +50,7 @@ def test_product_list_success(api_client, product):
 
 @pytest.mark.django_db
 def test_blog_list_success(api_client, blog):
+    """The public blog list returns a successful response."""
     url = reverse('blog-list')
     response = api_client.get(url)
     assert response.status_code == status.HTTP_200_OK
@@ -53,6 +60,7 @@ def test_blog_list_success(api_client, blog):
 
 @pytest.mark.django_db
 def test_create_sale_validation_error(api_client):
+    """Sale creation rejects an invalid public request payload."""
     url = reverse('create-sale')
     response = api_client.post(url, {}, format='json')
     assert response.status_code == status.HTTP_400_BAD_REQUEST
