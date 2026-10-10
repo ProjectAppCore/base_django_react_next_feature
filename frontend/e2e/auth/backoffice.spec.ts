@@ -53,8 +53,8 @@ async function prepareAccounts(config: FullConfig) {
     throw new Error('Backoffice E2E database must be a regular file inside this worktree.');
   }
   const accounts = [
-    { ...testUser, is_staff: false },
-    { ...testAdminUser, is_staff: true },
+    { ...testUser, is_staff: false, role: 'customer' },
+    { ...testAdminUser, is_staff: true, role: 'admin' },
   ];
   const script = `
 import json
@@ -86,7 +86,9 @@ with transaction.atomic():
         user.set_password(account['password'])
         user.is_active = True
         user.is_staff = account['is_staff']
-        user.save(update_fields=['password', 'is_active', 'is_staff'])
+        user.is_superuser = False
+        user.role = account['role']
+        user.save(update_fields=['password', 'is_active', 'is_staff', 'is_superuser', 'role'])
 `;
   await runFile(path.join(backendRoot, 'venv/bin/python'), ['-c', script, databasePath, JSON.stringify(accounts)], {
     cwd: backendRoot,
