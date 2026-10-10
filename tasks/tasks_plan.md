@@ -1,6 +1,23 @@
 # Tasks Plan — Base Django React Next Feature
 
-> Memory Bank · actualizado 2026-08-27 (dependency refresh integral). Conteos funcionales conservados de /qa; dependencias verificadas contra locks y auditorías.
+> Memory Bank · actualizado 2026-10-10 (ronda de calidad del template). Los conteos históricos conservan la fecha de su medición.
+
+## Ronda de calidad 2026-10-10
+
+- Ronda 3 centrada en un control de CI fiable: instalar Ruff, comprobar tooling
+  y rechazar reportes que no acrediten lint estricto completo en las tres capas.
+- Diagnóstico inicial reproducible: 153 findings Ruff, todos de docstrings o
+  espaciado, en 21 archivos. Se conserva el comportamiento de los tests.
+- `.junk-baseline.json` tiene cero entradas y no se modifica. No se agregan
+  excepciones ni se rebajan reglas o severidad para habilitar el control.
+- Pendientes elegibles tras ese prerrequisito: deduplicar la petición de productos
+  en curso; registrar de forma saneada fallos internos de reset; distinguir
+  indisponibilidad temporal de producto inexistente y permitir reintento manual.
+- Sin evidencia suficiente: matriz responsive de cinco tamaños y presupuestos
+  defensivos de recuperación. No equivalen a validación completada.
+- Bajo retorno descartado: abstracción CRUD, persistencia de auth unificada por
+  estilo, serializers de galería compartidos, telemetría sin necesidad operativa
+  y tuning sin mediciones. Reabrir solo ante un fallo o requisito concreto.
 
 ## Estado por feature (template)
 
@@ -31,14 +48,18 @@ Gaps cerrados por la corrida 2026-08-13: los 6 partial (auth-sign-up-form, catal
 
 1. `backend/base_feature_app/urls.py` (271 B) quedó **shadowed** por el paquete `urls/` — código muerto, candidato a repo-cleanup.
 2. `docs/USER_FLOW_MAP.md` stale (2026-02-24, anterior al staging banner); `flow-definitions.json` sí está fresco (2026-07-27).
-3. `.junk-baseline.json`: 15 findings frontend grandfathered — deuda de calidad declarada (no re-freezear sin veredicto del auditor).
+3. `.junk-baseline.json`: las 15 entradas históricas fueron retiradas; la lectura
+   del archivo el 2026-10-10 confirma cero. No re-freezear para ocultar deuda.
 4. Scripts `e2e:mobile` / `e2e:tablet` huérfanos: los projects Mobile/Tablet están comentados en `playwright.config.ts`.
 5. `CLAUDE.md` (raíz) describe una app `content/` que no existe — la app real es `base_feature_app` (drift del template).
 6. pytest instalado a nivel usuario (8.3.2) difiere del pin (9.0.3); usar SIEMPRE `backend/venv`.
 7. **BlogDetailPage sin rama not-found** (bug de producto): con un blogId inválido el usuario queda en "Loading..." para siempre — a diferencia de ProductDetailPage. El test unit correspondiente quedó KEEP con marker `allow-mock-only` hasta ese fix.
 8. **Footer.tsx huérfano**: `components/layout/Footer.tsx` no se monta en ningún lado (`app/layout.tsx` inlinea su propio footer). Decisión de producto pendiente: cablearlo o borrarlo (su test `layout.test.tsx::renders footer copy` testea código muerto).
 9. **Selectores muertos**: `selectBlogs*`/`selectProducts*` (blogStore.ts:44-46, productStore.ts:44-46) no tienen consumidores — candidatos a remoción de producto.
-10. **Deuda pydocstyle latente**: ~153 findings D (ruff select curado del gate toolkit) en 24 archivos de test backend. El CI está verde sólo porque su job de gate no instala ruff; si se agrega `pip install`, master pasa a rojo. Burn-down antes de tocar ese workflow.
+10. **Deuda pydocstyle corregida en ronda 3**: la medición completa confirmó
+    153 findings D en 21 archivos; se corrigieron conservando su comportamiento.
+    CI instala Ruff y valida el reporte para impedir el antiguo falso verde
+    por herramienta ausente.
 11. **~19 selectores posicionales e2e bounded**: seleccionar cards de listas seedeadas requiere un hook estable (`data-testid` per-card en ProductCard/BlogCard) — cambio de producto que destrabaría los warnings fragile_locator restantes.
 12. **Django 7 compatibility**: Django 6.1 emite `RemovedInDjango70Warning` por
     los settings legacy `EMAIL_*`; migrar la configuración a `MAILERS` antes del
@@ -62,7 +83,7 @@ Gaps cerrados por la corrida 2026-08-13: los 6 partial (auth-sign-up-form, catal
 - [ ] Producto: rama not-found en BlogDetailPage (issue 7) → habilita rewrite del test marcado.
 - [ ] Producto: decidir destino de Footer.tsx (issue 8) y remover selectores muertos (issue 9).
 - [ ] Producto: `data-testid` per-card en ProductCard/BlogCard (issue 11).
-- [ ] Burn-down de docstrings backend (issue 10) — patrón D212: summary en la línea de apertura.
+- [x] Burn-down de docstrings backend (issue 10) — patrón D212: summary en la línea de apertura; sin cambios de comportamiento ni reglas.
 - [ ] Refrescar `docs/USER_FLOW_MAP.md` desde el código real (qa-analyst) cuando el flow map se toque.
 - [ ] repo-cleanup: eliminar `base_feature_app/urls.py` shadowed y scripts e2e huérfanos.
 - [ ] Corregir la sección Directory Structure de `CLAUDE.md` (content/ → base_feature_app/).
