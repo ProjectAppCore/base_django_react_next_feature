@@ -4,10 +4,10 @@
 
 Use this document to understand each flow's steps, branching conditions, role restrictions, and API contracts before writing or reviewing E2E tests.
 
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Last Updated:** 2026-10-10
 
-Actualización de esta ronda: compras completas o revertidas, acceso administrativo y recuperación del detalle de blogs. El registro ejecutable de los flujos E2E está en `frontend/e2e/flow-definitions.json`.
+Actualización de ronda 4: recuperación con token completo y detalle de producto que distingue ausencia de indisponibilidad temporal. La ejecución final de QA se acredita por separado; este mapa describe el comportamiento implementado. El registro ejecutable de los flujos E2E está en `frontend/e2e/flow-definitions.json`.
 
 ---
 
@@ -161,36 +161,30 @@ Actualización de esta ronda: compras completas o revertidas, acceso administrat
 | **Frontend route** | `/forgot-password` |
 | **API endpoints** | `POST /api/send_passcode/`, `POST /api/verify_passcode_and_reset_password/` |
 
-**Preconditions:** User is not authenticated. A registered account exists.
+**Display:** Desde **Forgot password?** en sign-in, el usuario accede al formulario de email. Una solicitud aceptada abre el paso con **Recovery code**, **New Password**, **Confirm New Password**, **Reset password** y **Back to email**.
 
-**Step A — Request passcode:**
+**Success:**
 
-1. User navigates to `/forgot-password`.
-2. Page renders email input and **Send verification code** button (step = `email`).
-3. User enters email and clicks **Send verification code**.
-4. Frontend sends `POST /api/send_passcode/` with `{ email }`.
-5. Backend generates a `PasswordCode`, sends email with 6-digit code.
-6. Success message: "Verification code sent to your email". UI transitions to step = `code`.
+1. El usuario escribe su email y pulsa **Send verification code**.
+2. Para una cuenta existente, el servidor genera un token de Django ligado al estado de la contraseña, invalida los tokens pendientes anteriores y envía el token por correo. La API conserva las rutas y el campo `code`.
+3. El usuario pega el token completo; el input admite hasta 64 caracteres y conserva letras y separadores. Introduce contraseñas coincidentes de al menos ocho caracteres.
+4. Al pulsar **Reset password**, la API verifica el token y su vigencia menor a 15 minutos, cambia la contraseña e invalida los tokens pendientes en una transacción protegida por el lock de la cuenta.
+5. HTTP 200 redirige a `/sign-in`.
 
-**Step B — Reset password:**
-
-7. Page renders **Code** (6-digit), **New Password**, **Confirm New Password** fields and **Reset password** button.
-8. User enters code and new password.
-9. Frontend validates passwords match and length >= 8.
-10. Frontend sends `POST /api/verify_passcode_and_reset_password/` with `{ email, code, new_password }`.
-11. Backend verifies code, updates password, marks code as used. Returns HTTP 200.
-12. Success message: "Password reset successfully! Redirecting..." — redirect to `/sign-in`.
-
-**Branching conditions:**
+**Error:**
 
 | Condition | Behavior |
 |-----------|----------|
-| Email not registered | API still returns `200 { message: "If the email exists, a code has been sent" }` (no leak) |
-| Email send failure | `500 { error: "Failed to send email" }` |
-| Invalid or expired code | `400 { error: "Invalid or expired code" }` |
-| Passwords do not match | Client error — no API call |
-| Password < 8 chars | Client error — no API call |
-| "Back to email" clicked | UI returns to step A |
+| Email desconocido al solicitar | HTTP 200 con mensaje genérico; la página avanza al paso de recuperación |
+| Campos obligatorios ausentes | HTTP 400; no cambia la contraseña |
+| Token inválido, vencido, reemplazado o utilizado | HTTP 400 `Invalid or expired code`; se conserva el formulario y el token escrito |
+| Contraseñas no coincidentes | `Passwords do not match`; no se envía el reset |
+| Nueva contraseña menor a ocho caracteres | `Password must be at least 8 characters`; el cliente y la API rechazan la entrada |
+| **Back to email** | Regresa al primer paso |
+
+**Failure:** Si el envío de correo falla, la API responde HTTP 500 `Failed to send email`, invalida el token de esa solicitud y el formulario mantiene visible el error de envío. Una excepción interna del reset conserva la respuesta genérica y registra únicamente una operación fija y la clase de excepción, sin texto sensible ni traceback.
+
+**Límite:** El token fuerte reduce el riesgo de adivinar un código corto; esta ronda no añade cuotas persistentes de emisión o verificación ni certifica protección contra abuso del envío de correo. La serialización se comprueba en MySQL aislado; SQLite no acredita `select_for_update`.
 
 ---
 
@@ -334,24 +328,24 @@ Actualización de esta ronda: compras completas o revertidas, acceso administrat
 | **Priority** | P2 |
 | **Roles** | guest |
 | **Frontend route** | `/products/[productId]` |
-| **API endpoints** | `GET /api/products-data/` (single product fetch) |
+| **API endpoints** | `GET /api/products/{productId}/` |
 
-**Preconditions:** Product with given ID exists.
-
-**Steps:**
-
-1. User navigates to `/products/[productId]`.
-2. Page shows "Loading..." while fetching.
-3. Frontend fetches product data via `productStore.fetchProduct(id)`.
-4. Page renders: image gallery (up to 4 images), category label, title, price, description, **Add to cart** button.
-5. User can click **Add to cart** (see `app-cart-add` flow).
+**Display:** El usuario abre una tarjeta del catálogo y ve loading mientras la API obtiene el producto; una respuesta 200 muestra título, precio, descripción, galería y **Add to cart**.
 
 **Branching conditions:**
 
-| Condition | Behavior |
-|-----------|----------|
-| Invalid product ID | "Loading..." remains or redirects |
-| No gallery images | Single gray placeholder square |
+| Condition | Behavior | Outcome |
+|-----------|----------|---------|
+| ID no numérico | `Product not found.` y **Back to catalog**, sin consultar la API | error |
+| API 404 | `Product not found.` y **Back to catalog**, sin Retry | error |
+| Fallo temporal de red o servidor | `Product unavailable`, explicación, **Retry** y **Back to catalog** | failure |
+| Retry devuelve 200 | Loading termina y aparece el producto solicitado | success |
+| Retry vuelve a fallar | Permanece el estado recuperable | failure |
+| Retry devuelve 404 | Cambia al estado de producto inexistente | error |
+| Navegación a otro producto | La resolución o rechazo anterior no sobrescribe la vista actual | display |
+| Sin imágenes | Placeholder en lugar de galería | display |
+
+Retry dispara una sola nueva consulta; durante loading no aparece el botón. No hay reintentos automáticos. **Add to cart** conserva el flujo `app-cart-add`.
 
 ---
 
