@@ -99,13 +99,13 @@ test.describe('Blog Pages', () => {
       image_url: '',
     };
     await page.route('**/blogs/999999/', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(recoveredBlog) })
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
     );
-    await page.route('**/blogs/999999/', (route) =>
-      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
-    { times: 1 });
     await page.goto('/blogs/999999');
     await expect(page.getByText('Blog unavailable')).toBeVisible();
+    await page.route('**/blogs/999999/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(recoveredBlog) })
+    );
 
     await page.getByRole('button', { name: 'Retry' }).click();
 
