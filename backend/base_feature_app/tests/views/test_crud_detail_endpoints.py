@@ -1,7 +1,8 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.urls import reverse
-from django_attachments.models import Library
+from django_attachments.models import Attachment, Library
 from rest_framework import status
 
 from base_feature_app.models import Blog, Product, Sale, SoldProduct
@@ -39,6 +40,49 @@ def _create_sale():
     sale = Sale.objects.create(email='buyer@example.com', address='Addr', city='City', state='State', postal_code='123')
     sale.sold_products.add(sold)
     return sale
+
+
+@pytest.fixture(params=[
+    pytest.param(
+        (Blog, 'blog-detail', 'blog_id', lambda library, title: Blog.objects.create(
+            title=title, description='D', category='C', image=library,
+        )),
+        id='blog',
+    ),
+    pytest.param(
+        (Product, 'product-detail', 'product_id', lambda library, title: Product.objects.create(
+            title=title, description='D', category='C', sub_category='S', price=10, gallery=library,
+        )),
+        id='product',
+    ),
+])
+def shared_media_endpoint(request, settings, tmp_path, db):
+    """Create two API resources sharing a library with a real attachment."""
+    settings.MEDIA_ROOT = str(tmp_path / 'media')
+    model, route, id_field, create_owner = request.param
+    library = Library.objects.create(title='Shared media')
+    attachment = Attachment.objects.create(
+        library=library, file=ContentFile(b'Shared content', name='shared.txt'), rank=0,
+    )
+    deleted = create_owner(library, 'Deleted')
+    survivor = create_owner(library, 'Survivor')
+    return model, reverse(route, kwargs={id_field: deleted.pk}), deleted.pk, survivor, library, attachment
+
+
+@pytest.mark.django_db
+def test_detail_delete_preserves_shared_media(api_client, staff_user, shared_media_endpoint):
+    """A successful DELETE removes only the selected owner of shared media."""
+    model, url, deleted_id, survivor, library, attachment = shared_media_endpoint
+    api_client.force_authenticate(user=staff_user)
+
+    response = api_client.delete(url)
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    assert not model.objects.filter(pk=deleted_id).exists()
+    assert model.objects.filter(pk=survivor.pk).exists()
+    assert Library.objects.filter(pk=library.pk).exists()
+    assert Attachment.objects.filter(pk=attachment.pk, library=library).exists()
+    assert attachment.file.storage.exists(attachment.file.name)
 
 
 @pytest.mark.django_db

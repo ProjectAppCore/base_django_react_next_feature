@@ -5,7 +5,13 @@ from django.core.files.base import ContentFile
 from django_attachments.models import Attachment, Library
 from PIL import Image
 
-from base_feature_app.models import Blog
+from base_feature_app.models import Blog, Product
+
+
+@pytest.fixture(autouse=True)
+def isolated_media(settings, tmp_path):
+    """Keep attachment files inside this test's temporary directory."""
+    settings.MEDIA_ROOT = str(tmp_path / 'media')
 
 
 def _placeholder_image(name='placeholder.webp'):
@@ -47,3 +53,50 @@ def test_blog_delete_handles_missing_library():
     blog.delete()
 
     assert not Blog.objects.filter(id=blog.id).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('create_survivor', [
+    pytest.param(
+        lambda library: Blog.objects.create(title='Survivor', description='D', category='C', image=library),
+        id='blog',
+    ),
+    pytest.param(
+        lambda library: Product.objects.create(
+            title='Survivor', description='D', category='C', sub_category='S', price=10, gallery=library,
+        ),
+        id='product',
+    ),
+])
+def test_blog_delete_preserves_shared_library(create_survivor):
+    """Deleting a blog preserves the library still used by another owner."""
+    library = Library.objects.create(title='Shared image')
+    attachment = Attachment.objects.create(library=library, file=_placeholder_image(), rank=0)
+    blog = Blog.objects.create(title='Deleted', description='D', category='C', image=library)
+    blog_id = blog.pk
+    survivor = create_survivor(library)
+
+    result = blog.delete(using='default')
+
+    assert result is None
+    assert not Blog.objects.filter(pk=blog_id).exists()
+    assert type(survivor).objects.filter(pk=survivor.pk).exists()
+    assert Library.objects.filter(pk=library.pk).exists()
+    assert Attachment.objects.filter(pk=attachment.pk, library=library).exists()
+    assert attachment.file.storage.exists(attachment.file.name)
+
+
+@pytest.mark.django_db
+def test_blog_delete_cleans_library_after_last_owner():
+    """Removing the final blog cleans its formerly shared library."""
+    library = Library.objects.create(title='Shared image')
+    attachment = Attachment.objects.create(library=library, file=_placeholder_image(), rank=0)
+    first = Blog.objects.create(title='First', description='D', category='C', image=library)
+    last = Blog.objects.create(title='Last', description='D', category='C', image=library)
+    first.delete()
+
+    last.delete()
+
+    assert not Library.objects.filter(pk=library.pk).exists()
+    assert not Attachment.objects.filter(pk=attachment.pk).exists()
+    assert not attachment.file.storage.exists(attachment.file.name)
