@@ -118,14 +118,24 @@ test.describe('Product Pages', () => {
     await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   });
 
-  test('keeps a network failure recoverable', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:failure'] }, async ({ page }) => {
+  test('recovers from a network failure after an explicit retry', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:success'] }, async ({ page }) => {
+    const recoveredProduct = {
+      id: 999999, title: 'Product recovered after network failure', category: 'Candles',
+      description: 'Connection restored', price: 45, gallery_urls: [],
+    };
     await page.route('**/products/999999/', (route) => route.abort('failed'));
-
     await page.goto('/products/999999');
-
     await expect(page.getByText('Product unavailable')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Back to catalog' })).toBeVisible();
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(recoveredProduct) })
+    );
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+
+    await expect(page.getByRole('heading', { name: recoveredProduct.title })).toBeVisible();
+    await expect(page.getByText('$45', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add to cart' })).toBeVisible();
   });
 
   test('the product detail renders a gallery image with a source', { tag: [...CATALOG_PRODUCT_GALLERY, '@outcome:display'] }, async ({ page }) => {
