@@ -51,6 +51,68 @@ test.describe('Blog Pages', () => {
     await expect(page.getByText(title, { exact: false }).first()).toBeVisible();
   });
 
+  test('returns to the blog list from an invalid detail URL', { tag: [...BLOG_DETAIL_VIEW, '@outcome:error'] }, async ({ page }) => {
+    await page.goto('/blogs/not-a-number');
+    await expect(page.getByText('Blog not found.')).toBeVisible();
+
+    await page.getByRole('link', { name: 'Back to blogs' }).click();
+
+    await expect(page).toHaveURL(/\/blogs$/);
+    await expect(page.getByRole('heading', { name: 'Blogs', exact: true })).toBeVisible();
+  });
+
+  test('returns to the blog list after a missing post', { tag: [...BLOG_DETAIL_VIEW, '@outcome:error'] }, async ({ page }) => {
+    await page.route('**/blogs/999999/', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    );
+    await page.goto('/blogs/999999');
+    await expect(page.getByText('Blog not found.')).toBeVisible();
+
+    await page.getByRole('link', { name: 'Back to blogs' }).click();
+
+    await expect(page).toHaveURL(/\/blogs$/);
+    await expect(page.getByRole('heading', { name: 'Blogs', exact: true })).toBeVisible();
+  });
+
+  test('keeps a failed post recoverable after a rejected retry', { tag: [...BLOG_DETAIL_VIEW, '@outcome:failure'] }, async ({ page }) => {
+    await page.route('**/blogs/999999/', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+    );
+    await page.goto('/blogs/999999');
+    await expect(page.getByText('Blog unavailable')).toBeVisible();
+    const retryResponse = page.waitForResponse((response) => response.url().endsWith('/blogs/999999/'));
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+    expect((await retryResponse).status()).toBe(500);
+
+    await expect(page.getByText('Blog unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to blogs' })).toBeVisible();
+  });
+
+  test('loads the post after an explicit retry succeeds', { tag: [...BLOG_DETAIL_VIEW, '@outcome:success'] }, async ({ page }) => {
+    const recoveredBlog = {
+      id: 999999,
+      title: 'Recovered blog',
+      category: 'Tips',
+      description: 'Content restored',
+      image_url: '',
+    };
+    await page.route('**/blogs/999999/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(recoveredBlog) })
+    );
+    await page.route('**/blogs/999999/', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    { times: 1 });
+    await page.goto('/blogs/999999');
+    await expect(page.getByText('Blog unavailable')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+
+    await expect(page.getByRole('heading', { name: recoveredBlog.title })).toBeVisible();
+    await expect(page.getByText(recoveredBlog.description)).toBeVisible();
+  });
+
   test('should navigate back to blogs list from detail', { tag: [...BLOG_DETAIL_BACK, '@outcome:success'] }, async ({ page }) => {
     const blogCards = page.locator('a[href^="/blogs/"]');
     await expect(blogCards.first()).toBeVisible({ timeout: 15000 });
