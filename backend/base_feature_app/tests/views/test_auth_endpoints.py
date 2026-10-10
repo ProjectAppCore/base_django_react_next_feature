@@ -499,17 +499,15 @@ def test_verify_passcode_rejects_expired_code(api_client):
 
 
 @pytest.mark.django_db
-def test_verify_passcode_handles_database_failure(api_client, caplog):
-    """A failed token lookup produces a sanitized diagnostic without a reset."""
+def test_verify_passcode_handles_database_failure(api_client):
+    """A failed token lookup leaves credentials unchanged with a generic response."""
     user = get_user_model().objects.create_user(email='boom@example.com', password='pass1234')
     password_code = PasswordCode.generate_code(user)
     original_password = user.password
-    sentinel = f'SENSITIVE {user.email} {password_code.code} proposed-password'
-    caplog.set_level(logging.ERROR, logger=auth_views.__name__)
 
     def fail_lookup(execute, sql, params, many, context):
         if sql.lstrip().upper().startswith('SELECT') and 'base_feature_app_passwordcode' in sql:
-            raise OperationalError(sentinel)
+            raise OperationalError('synthetic token lookup failure')
         return execute(sql, params, many, context)
 
     with connection.execute_wrapper(fail_lookup):
@@ -519,16 +517,36 @@ def test_verify_passcode_handles_database_failure(api_client, caplog):
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()['error'] == 'Invalid or expired code'
+    user.refresh_from_db()
+    password_code.refresh_from_db()
+    assert user.password == original_password
+    assert password_code.used is False
+
+
+@pytest.mark.django_db
+def test_verify_passcode_logs_sanitized_database_failure(api_client, caplog):
+    """A failed token lookup logs only its event and exception type."""
+    user = get_user_model().objects.create_user(email='boom@example.com', password='pass1234')
+    password_code = PasswordCode.generate_code(user)
+    sentinel = f'SENSITIVE {user.email} {password_code.code} proposed-password'
+    caplog.set_level(logging.ERROR, logger=auth_views.__name__)
+
+    def fail_lookup(execute, sql, params, many, context):
+        if sql.lstrip().upper().startswith('SELECT') and 'base_feature_app_passwordcode' in sql:
+            raise OperationalError(sentinel)
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(fail_lookup):
+        api_client.post(reverse('verify_passcode_reset'), {
+            'email': user.email, 'code': password_code.code, 'new_password': 'proposed-password',
+        }, format='json')
+
     assert 'Password reset failed: error_type=OperationalError' in caplog.text
     assert sentinel not in caplog.text
     assert user.email not in caplog.text
     assert password_code.code not in caplog.text
     assert 'proposed-password' not in caplog.text
     assert 'Traceback' not in caplog.text
-    user.refresh_from_db()
-    password_code.refresh_from_db()
-    assert user.password == original_password
-    assert password_code.used is False
 
 
 @pytest.mark.django_db
