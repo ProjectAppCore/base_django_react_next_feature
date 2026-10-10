@@ -24,7 +24,7 @@ Solo tres causas: recuperación fuerte, logs saneados de correo y producto recup
 | Causa | Impacto | Esfuerzo | Riesgo de regresión | Retorno |
 |---|---|---|---|---|
 | Token fuerte, reemplazo/consumo y compatibilidad del formulario | ALTO | MEDIO | MEDIO | Elimina el espacio de búsqueda de seis dígitos y protege el consumo; cambia el formato que se pega |
-| Diagnóstico saneado de correo | ALTO | BAJO | BAJO | Excepciones del transporte dejan de exponer dirección/token y conservan el contrato |
+| Diagnóstico saneado de correo | MEDIO | BAJO | BAJO | Excepciones del transporte dejan de exponer dirección/token y conservan el contrato |
 | Producto: 404 frente a fallo temporal y Retry | MEDIO | BAJO | BAJO | El usuario puede recuperarse de un fallo de red/servidor en lugar de asumir inexistencia |
 
 ## Comportamiento y pruebas necesarias
