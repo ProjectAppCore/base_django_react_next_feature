@@ -9,13 +9,14 @@ La cuarta ronda conservadora implementó tres causas: reset mediante token fuert
 ## Decisiones de la ronda
 
 - Seguridad es dueña de modelos/auth, correo, formulario de recuperación y sus tests; observabilidad es dueña del detalle de producto y sus tests. QA coordina una única validación y los seis documentos aprobados; el orquestador conserva integración y Git externo.
-- Se mantiene `PasswordCode` y las APIs existentes; `code` pasa a 64 caracteres. El token estándar de Django está ligado a la contraseña y dura menos de 15 minutos. Emisión/reset invalidan desafíos previos bajo lock de la cuenta; no se añaden cuatro campos de cuotas a User.
+- Se mantiene `PasswordCode` y las APIs existentes; `code` pasa a 64 caracteres. El token estándar de Django está ligado a la contraseña y dura menos de 15 minutos. Emisión/reset marcan usadas las filas pendientes bajo lock de la cuenta; no se añaden cuatro campos de cuotas a User.
 - La migración 0006 invalida códigos antiguos pendientes y es irreversible. La comprobación histórica independiente pasó en SQLite en memoria sobre `8fabd093539af6056dfeb4200aa6cd6337442996`: columna 64 e `IrreversibleError` antes de reducirla.
 - Errores de correo conservan retorno `False` y registran únicamente operación y clase de excepción. El guard del reset conserva su respuesta genérica y emite una señal saneada; no se añade telemetría adicional.
 - Producto distingue 404 de fallo temporal, permite Retry manual y descarta respuestas de una ruta anterior. El test que exigía inexistencia ante un 500 fue reemplazado.
 - Deduplicar `fetchProducts` sigue siendo elegible, pero pendiente por el límite de tres causas. No se amplía a blogs. Responsividad permanece sin certificación de cinco tamaños.
 - El gate previo ya acreditó Ruff/ESLint, cero errores e infraerrores, baseline vacía, 61 advertencias preexistentes y 55 casos CLI; esa causa no se reabre.
 - MySQL 8.0.46 fue rechazado por Django 6.1.1. Se preparó un scratch nuevo 8.4.11, sin red ni MySQLX, con conexión Django/mysqlclient y correo en memoria verificados. Los tres tests concurrentes pasaron en MySQL sobre `af3d6aa` (3 casos, 159,86 s); no sustituyen la ejecución combinada del SHA final. El E2E final sigue pendiente.
+- Tradeoff aprobado: el generador estándar puede producir el mismo texto para usuario/estado/segundo idénticos. Se garantiza una fila activa y un consumo, sin prometer valores únicos por emisión. Cambiar la contraseña invalida el token; no se incorpora nonce, subclase ni generador propio.
 - No se introducen límites persistentes de emisión/verificación ni se certifica protección contra abuso de correo. La excepción npm existente no se renueva ni amplía.
 
 ## Decisiones activas

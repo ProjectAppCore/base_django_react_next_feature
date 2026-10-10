@@ -12,7 +12,7 @@ Solo tres causas: recuperación fuerte, logs saneados de correo y producto recup
 
 | Frente | Decisión | Evidencia y límite |
 |---|---|---|
-| Seguridad | VALE LA PENA | Seis dígitos acumulables, intentos sin presupuesto y consumo individual en el snapshot (`models/password_code.py:21-40`, `views/auth.py:267-344`). Token estándar fuerte, ligados a contraseña, reemplazo de pendientes y consumo transaccional implementados. No hay cuotas persistentes ni certificación global. |
+| Seguridad | VALE LA PENA | Seis dígitos acumulables, intentos sin presupuesto y consumo individual en el snapshot (`models/password_code.py:21-40`, `views/auth.py:267-344`). Token estándar fuerte, ligados a contraseña, invalidación de filas pendientes y consumo transaccional implementados. No hay cuotas persistentes ni certificación global. |
 | Observabilidad | VALE LA PENA | Excepciones de correo exponían su texto y producto convertía cualquier fallo en ausencia. Señales fijas con clase de excepción, retorno `False`, y estados 404/temporal/Retry implementados; el guard de reset saneado es parte del nuevo flujo. |
 | Mantenibilidad | NO VALE LA PENA | Duplicación menor de auth/CRUD sin bloqueo demostrado. Se coordinó el consumidor de `fetchProduct` para evitar loading permanente al propagar rechazos; sin refactor adicional. |
 | Rendimiento | VALE LA PENA, pendiente por cupo | Home y carrusel invocan listado; reproducción en memoria del snapshot: dos llamadas simultáneas producen dos GET (`app/page.tsx:15-17`, `ProductCarousel.tsx:15-17`, `productStore.ts:21-28`). No implementado en esta ronda. |
@@ -29,7 +29,7 @@ Solo tres causas: recuperación fuerte, logs saneados de correo y producto recup
 
 ## Comportamiento y pruebas necesarias
 
-- Recuperación: token completo con máximo 64 caracteres, vigencia estricta menor a 15 minutos, invalida anteriores al emitir y al cambiar password, password débil no consume el token, email fallido invalida solo su desafío, replay rechazado y señales saneadas. Frontend conserva rutas y campo `code`, permite pegar letras/separadores y mantiene el valor ante rechazo.
+- Recuperación: token completo con máximo 64 caracteres, vigencia estricta menor a 15 minutos, marca usadas las filas anteriores al emitir y al cambiar password, password débil no consume el token, email fallido invalida solo su desafío, replay rechazado y señales saneadas. Frontend conserva rutas y campo `code`, permite pegar letras/separadores y mantiene el valor ante rechazo.
 - Concurrencia MySQL: dos resets del mismo token permiten exactamente un éxito, dos emisiones dejan un único desafío activo, fallo al consumir revierte el cambio de password. Conexiones independientes y barrera antes del request; ninguna sustitución de locks, modelos o reglas.
 - Correo: ambas funciones fallidas devuelven `False`; logger incluye operación fija y clase de excepción, excluye dirección/token/texto sensible/traceback; stdout vacío. Mock solamente `send_mail`.
 - Producto: API404 devuelve ausencia; API500/red conserva fallo recuperable; Retry éxito/fallo/404 termina loading y presenta el resultado; respuestas anteriores no modifican la nueva ruta. Store real en tests de página, mock únicamente HTTP.
@@ -57,6 +57,8 @@ Los comandos `qa-agent.sh --check/--verify` escriben reportes bajo el toolkit. L
 El manifiesto tendrá `schema:1`, `kind:improvement-qa`, SHA40 exacto, tres IDs de causa y ejecuciones reales con capa/comando/exit/artifact/format; E2E `live:true` solo contra la app aislada acreditada. Reportes/artefactos serán archivos regulares, sin symlinks, dentro del worktree probado. No se declara verified por una captura, test draft o gate sin ejecución.
 
 ## Descartes y pendientes
+
+- Tradeoff explícito de recuperación: se conserva `django.contrib.auth.tokens.PasswordResetTokenGenerator` estándar. Para un usuario/estado/segundo idénticos puede repetir el texto. Se invalidan filas anteriores, queda una activa y hay un solo consumo transaccional; no se promete valor único por emisión ni validez diferente para dos cadenas idénticas. La nueva contraseña invalida el token anterior. Se rechazó añadir nonce, subclase o generador propio sin un camino de ataque adicional demostrado; el hallazgo del Auditor se resolvió precisando el contrato documental, sin ampliar código ni tests.
 
 - Deduplicación de `fetchProducts`: MEDIO/BAJO/BAJO; elegible pero fuera del cupo. Se conserva el guion de concurrencia, recarga y Retry para otra ronda; no se amplía a blogs.
 - Refactors CRUD, galería y persistencia auth por estilo: BAJO/BAJO/MEDIO; descartados sin un problema concreto.

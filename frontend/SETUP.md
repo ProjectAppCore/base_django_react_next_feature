@@ -163,7 +163,8 @@ npm run test:all          # Unit coverage + E2E
 ### Forgot Password (`/forgot-password`)
 - Paso 1: introducir el email y recibir un token de recuperación.
 - Paso 2: pegar el token completo (hasta 64 caracteres, con letras y separadores), introducir contraseñas coincidentes de al menos ocho caracteres y enviar.
-- El token caduca a los 15 minutos; pedir otro reemplaza los anteriores y cambiar la contraseña consume los pendientes. Las rutas API y el campo `code` se conservan.
+- El token caduca a los 15 minutos; pedir otro marca como usadas las filas anteriores y cambiar la contraseña consume las pendientes. Las rutas API y el campo `code` se conservan.
+- El generador estándar de Django puede repetir el mismo texto para el mismo usuario, estado y segundo. Se garantiza una fila activa y un solo reset, no un valor distinto por envío. Cambiar la contraseña invalida el token del estado anterior.
 - Los códigos de seis dígitos anteriores se invalidan mediante la migración 0006; es necesario solicitar un token nuevo.
 
 ---

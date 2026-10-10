@@ -18,6 +18,8 @@
 - [x] Concurrencia MySQL del backend de seguridad: 3 casos aprobados sobre `af3d6aa`, 159,86 s; no sustituye la ejecución del combinado final.
 El resultado de la validación combinada, gate, CI y cierre externo pertenece a los artefactos/PRs de esta ronda. No se afirma éxito futuro ni se registra ese cierre de sesión como deuda funcional permanente.
 
+El generador estándar de Django puede repetir el texto de dos emisiones en el mismo segundo; se garantiza una fila activa y un consumo, no unicidad de valores. Cambiar la contraseña invalida el token anterior. Se conserva ese tradeoff explícito sin ampliar el SUT.
+
 No hay certificación responsive, cuotas persistentes de emisión/verificación ni auditoría global de seguridad. No se reabre la causa de lint acreditada en ronda 3. El informe de decisiones y límites está en `docs/audits/improvement-ronda4-20261010.md`.
 
 ## Ronda de calidad 2026-10-10

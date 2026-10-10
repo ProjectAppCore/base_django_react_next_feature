@@ -166,9 +166,9 @@ Actualización de ronda 4: recuperación con token completo y detalle de product
 **Success:**
 
 1. El usuario escribe su email y pulsa **Send verification code**.
-2. Para una cuenta existente, el servidor genera un token de Django ligado al estado de la contraseña, invalida los tokens pendientes anteriores y envía el token por correo. La API conserva las rutas y el campo `code`.
+2. Para una cuenta existente, el servidor genera un token de Django ligado al estado de la contraseña, marca como usadas las filas pendientes anteriores y envía el token por correo. La API conserva las rutas y el campo `code`.
 3. El usuario pega el token completo; el input admite hasta 64 caracteres y conserva letras y separadores. Introduce contraseñas coincidentes de al menos ocho caracteres.
-4. Al pulsar **Reset password**, la API verifica el token y su vigencia menor a 15 minutos, cambia la contraseña e invalida los tokens pendientes en una transacción protegida por el lock de la cuenta.
+4. Al pulsar **Reset password**, la API verifica el token y su vigencia menor a 15 minutos, cambia la contraseña y marca como usadas las filas pendientes en una transacción protegida por el lock de la cuenta.
 5. HTTP 200 redirige a `/sign-in`.
 
 **Error:**
@@ -177,14 +177,14 @@ Actualización de ronda 4: recuperación con token completo y detalle de product
 |-----------|----------|
 | Email desconocido al solicitar | HTTP 200 con mensaje genérico; la página avanza al paso de recuperación |
 | Campos obligatorios ausentes | HTTP 400; no cambia la contraseña |
-| Token inválido, vencido, reemplazado o utilizado | HTTP 400 `Invalid or expired code`; se conserva el formulario y el token escrito |
+| Token inválido, vencido o sin una fila pendiente válida | HTTP 400 `Invalid or expired code`; se conserva el formulario y el token escrito |
 | Contraseñas no coincidentes | `Passwords do not match`; no se envía el reset |
 | Nueva contraseña menor a ocho caracteres | `Password must be at least 8 characters`; el cliente y la API rechazan la entrada |
 | **Back to email** | Regresa al primer paso |
 
 **Failure:** Si el envío de correo falla, la API responde HTTP 500 `Failed to send email`, invalida el token de esa solicitud y el formulario mantiene visible el error de envío. Una excepción interna del reset conserva la respuesta genérica y registra únicamente una operación fija y la clase de excepción, sin texto sensible ni traceback.
 
-**Límite:** El token fuerte reduce el riesgo de adivinar un código corto; esta ronda no añade cuotas persistentes de emisión o verificación ni certifica protección contra abuso del envío de correo. La serialización se comprueba en MySQL aislado; SQLite no acredita `select_for_update`.
+**Límite:** Se conserva `PasswordResetTokenGenerator` estándar de Django. Para el mismo usuario, estado y segundo, dos emisiones pueden producir el mismo texto: las filas anteriores se consumen, queda una fila activa y solo se permite un reset; no se promete un valor distinto por emisión ni validez diferente para cadenas idénticas. Cambiar la contraseña invalida el token ligado al estado anterior. El token fuerte reduce el riesgo de adivinar un código corto; esta ronda no añade cuotas persistentes de emisión o verificación ni certifica protección contra abuso del envío de correo. La serialización se comprueba en MySQL aislado; SQLite no acredita `select_for_update`.
 
 ---
 
