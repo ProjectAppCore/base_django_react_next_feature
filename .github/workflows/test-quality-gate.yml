@@ -30,9 +30,18 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Install Python quality tooling
+        run: python3 -m pip install --requirement backend/requirements-tools.txt
+
+      - name: Verify required lint tools
+        run: |
+          ruff --version
+          frontend/node_modules/.bin/eslint --version
+
       - name: Run test quality gate
         run: |
           python3 scripts/test_quality_gate.py --repo-root . --report-path test-results/test-quality-report.json --external-lint run --semantic-rules strict --verbose --junk-severity=error
+          python3 scripts/validate_test_quality_report.py test-results/test-quality-report.json
 
       - name: Upload gate report
         if: always()

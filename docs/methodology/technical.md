@@ -1,6 +1,6 @@
 # Technical — Base Django React Next Feature
 
-> Memory Bank · actualizado 2026-08-27 (dependency refresh integral). Versiones verificadas contra los locks y los escaneos finales.
+> Memory Bank · actualizado 2026-10-10 (control de calidad de CI). Las mediciones históricas mantienen su fecha.
 
 ## Stack
 
@@ -12,7 +12,7 @@
 | DB dev/test | sqlite3 (default `DJANGO_DB_ENGINE`) | — |
 | DB prod | MySQL (mysqlclient 2.2.8, settings_prod) | — |
 | Runtime frontend | Node.js / npm | 24.20.0 LTS / 11.19.0 |
-| Frontend | Next.js (App Router) / React | 16.3.3 / 19.2.8 |
+| Frontend | Next.js (App Router) / React | 16.3.8 / 19.2.8 |
 | Estado | Zustand | 5.0.15 |
 | i18n | next-intl | 4.14.0 |
 | HTTP | axios | 1.20.0 |
@@ -63,13 +63,17 @@ cd frontend && npx playwright test
 | Frontend unit | Jest 30 (`**/__tests__/**/*.test.ts(x)`, threshold 50%) | colocalizados en `app/`, `components/`, `lib/` | 29 archivos / 184 tests |
 | E2E | Playwright (project "Desktop Chrome") | `frontend/e2e/` (8 specs / 40 tests) | flow map: `e2e/flow-definitions.json` (33 flows) |
 
-- Quality gate: `scripts/test_quality_gate.py` + `.testquality.yml` (≤50 líneas/test, ≤7 asserts, timeout ≤100ms) con baseline `.junk-baseline.json` (15 findings frontend grandfathered, keyed `file::rule::test_name`).
+- Quality gate: `scripts/test_quality_gate.py` + `.testquality.yml` (≤50 líneas/test, ≤7 asserts, timeout ≤100ms). La baseline `.junk-baseline.json` conserva cero entradas; no se amplía para aprobar cambios.
 - CI (`.github/workflows/`): `ci.yml` valida drift del lock Python, instalación
   con hashes, `pip-audit`, `pip check`, WSGI/Gunicorn, `npm audit`, ESLint,
   allowlist de scripts npm, TypeScript 7 + compatibilidad TypeScript 6, build,
   backend sqlite, unit y e2e con fake data + coverage summary;
-  `test-quality-gate.yml` ejecuta
-  `--junk-severity=error`.
+  `test-quality-gate.yml` instala tooling fijado, comprueba Ruff y ESLint y ejecuta
+  `--junk-severity=error --external-lint run --semantic-rules strict`.
+  Después, `scripts/validate_test_quality_report.py <reporte.json>` exige cero
+  errores, ambos linters ejecutados y archivos/tests positivos en backend,
+  frontend unit y E2E. El CLI canónico conserva sus modos tolerantes locales;
+  su salida cero por sí sola no reemplaza esta comprobación del reporte completo.
 - Reglas de ejecución: ≤20 tests por batch, ≤3 comandos por ciclo, e2e ≤2 archivos por invocación, `E2E_REUSE_SERVER=1` si el dev server ya corre.
 
 ## Constraints técnicos
@@ -78,7 +82,8 @@ cd frontend && npx playwright test
   `RemovedInDjango70Warning`; migrar a `MAILERS` antes de Django 7.
 - `backend/requirements.in` es la fuente humana; `requirements.txt` se genera
   con `pip-compile`, hashes y versiones exactas. `requirements-tools.txt` fija
-  pip/pip-tools/pip-audit y CI rechaza drift.
+  pip/pip-tools/pip-audit/Ruff y CI rechaza drift. Ruff está fijado a `0.16.4`,
+  igual que en el lock de aplicación.
 - TypeScript 7 es el typecheck principal. Next y typescript-eslint usan la API
   TypeScript 6 mediante el alias oficial hasta que la API nativa esté soportada.
 - ESLint 10 necesita `@eslint/compat` para los plugins legacy anidados por
