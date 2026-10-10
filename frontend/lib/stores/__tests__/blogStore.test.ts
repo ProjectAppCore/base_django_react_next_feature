@@ -113,8 +113,8 @@ describe('blogStore', () => {
       expect(result.current.error).toBeNull();
     });
 
-    it('should handle fetch error', async () => {
-      mockApi.get.mockRejectedValueOnce(new Error('Not found'));
+    it('returns null for a missing blog', async () => {
+      mockApi.get.mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } });
 
       const { result } = renderHook(() => useBlogStore());
 
@@ -125,7 +125,31 @@ describe('blogStore', () => {
 
       expect(blog).toBeNull();
       expect(result.current.loading).toBe(false);
-      expect(result.current.error).toBe('Could not load blog. Is the backend running?');
+      expect(result.current.error).toBeNull();
+    });
+
+    it.each([
+      ['server', { isAxiosError: true, response: { status: 500 } }],
+      ['network', new Error('Connection failed')],
+    ])('rejects a %s failure after ending loading', async (_kind, error) => {
+      mockApi.get.mockRejectedValueOnce(error);
+
+      await expect(useBlogStore.getState().fetchBlog(1)).rejects.toBe(error);
+
+      expect(useBlogStore.getState().loading).toBe(false);
+      expect(useBlogStore.getState().error).toBe('Could not load blog. Please try again.');
+    });
+
+    it('marks the detail request as loading until it completes', async () => {
+      let resolveRequest!: (value: { data: typeof mockBlog }) => void;
+      mockApi.get.mockReturnValueOnce(new Promise((resolve) => { resolveRequest = resolve; }));
+
+      const request = useBlogStore.getState().fetchBlog(1);
+
+      expect(useBlogStore.getState().loading).toBe(true);
+      resolveRequest({ data: mockBlog });
+      await expect(request).resolves.toEqual(mockBlog);
+      expect(useBlogStore.getState().loading).toBe(false);
     });
   });
 

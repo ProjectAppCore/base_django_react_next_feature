@@ -63,12 +63,19 @@ test.describe('Complete Purchase Flow', () => {
     const submitBtn = page.getByRole('button', { name: 'Complete checkout' });
     await expect(submitBtn).toBeEnabled();
 
-    // 9. Actually submit — the sale request is stubbed 201 so the assertion
-    // does not depend on backend state beyond the seeded product used above.
-    await page.route('**/create-sale/', (route) =>
-      route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+    // 9. Submit to the real API and verify the sale persisted by checkout.
+    const saleResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith('/create-sale/') && response.request().method() === 'POST'
     );
     await submitBtn.click();
+    const saleResponse = await saleResponsePromise;
+    expect(saleResponse.status()).toBe(201);
+    const sale = await saleResponse.json();
+    expect(sale.id).toEqual(expect.any(Number));
+    expect(sale.email).toBe(testCheckoutData.email);
+    expect(sale.sold_products).toHaveLength(1);
+    expect(sale.sold_products[0].product.title).toBe(productTitle);
+    expect(sale.sold_products[0].quantity).toBe(1);
 
     // 10. The purchase is only "complete" if the success state is visible and
     // the cart the user just bought from is actually cleared.
