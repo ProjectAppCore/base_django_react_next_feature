@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.db import migrations, models
 
 
@@ -10,11 +12,11 @@ def invalidate_legacy_codes(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [
+    dependencies: ClassVar = [
         ('base_feature_app', '0005_create_staging_phase_banner'),
     ]
 
-    operations = [
+    operations: ClassVar = [
         migrations.AlterField(
             model_name='passwordcode',
             name='code',
