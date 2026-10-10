@@ -113,19 +113,41 @@ describe('productStore', () => {
       expect(result.current.error).toBeNull();
     });
 
-    it('should handle fetch error', async () => {
-      mockApi.get.mockRejectedValueOnce(new Error('Not found'));
+    it('returns null after an Axios 404 response', async () => {
+      mockApi.get.mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } });
 
-      const { result } = renderHook(() => useProductStore());
-
-      let product;
-      await act(async () => {
-        product = await result.current.fetchProduct(999);
-      });
+      const product = await useProductStore.getState().fetchProduct(999);
 
       expect(product).toBeNull();
-      expect(result.current.loading).toBe(false);
-      expect(result.current.error).toBe('Could not load product. Is the backend running?');
+      expect(useProductStore.getState().loading).toBe(false);
+      expect(useProductStore.getState().error).toBeNull();
+    });
+
+    it.each([
+      ['server', { isAxiosError: true, response: { status: 500 } }],
+      ['network', new Error('Connection failed')],
+      ['non-Axios 404', { response: { status: 404 } }],
+    ])('rejects a %s failure as recoverable', async (_kind, error) => {
+      mockApi.get.mockRejectedValueOnce(error);
+
+      await expect(useProductStore.getState().fetchProduct(1)).rejects.toBe(error);
+
+      expect(useProductStore.getState().loading).toBe(false);
+      expect(useProductStore.getState().error).toBe('Could not load product. Please try again.');
+    });
+
+    it('clears the previous detail error before a new request', async () => {
+      useProductStore.setState({ error: 'Previous failure' });
+      let resolveRequest!: (value: { data: typeof mockProduct }) => void;
+      mockApi.get.mockReturnValueOnce(new Promise((resolve) => { resolveRequest = resolve; }));
+
+      const request = useProductStore.getState().fetchProduct(1);
+
+      expect(useProductStore.getState().loading).toBe(true);
+      expect(useProductStore.getState().error).toBeNull();
+      resolveRequest({ data: mockProduct });
+      await expect(request).resolves.toEqual(mockProduct);
+      expect(useProductStore.getState().loading).toBe(false);
     });
   });
 
