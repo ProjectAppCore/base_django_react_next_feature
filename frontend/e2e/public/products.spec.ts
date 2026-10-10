@@ -34,10 +34,7 @@ test.describe('Product Pages', () => {
     await expect(page.getByText(/\$\d/).first()).toBeVisible();
   });
 
-  test('shows a not-found state when the product detail request fails', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:failure'] }, async ({ page }) => {
-    // Catches a regression where a failed detail fetch leaves `loading` stuck
-    // true forever (page never resolves past "Loading...") instead of
-    // falling back to the not-found UI.
+  test('shows a recoverable state when the product detail request fails', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:failure'] }, async ({ page }) => {
     // quality: allow-fragile-selector (product list links uniquely scoped by href pattern)
     const productCards = page.locator('a[href^="/products/"]');
     await expect(productCards.first()).toBeVisible({ timeout: 15000 });
@@ -49,7 +46,85 @@ test.describe('Product Pages', () => {
     );
     await productCards.first().click();
 
+    await expect(page.getByText('Product unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to catalog' })).toBeVisible();
+  });
+
+  test('returns to the catalog after a missing product', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:error'] }, async ({ page }) => {
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    );
+    await page.goto('/products/999999');
     await expect(page.getByText('Product not found.')).toBeVisible();
+
+    await page.getByRole('link', { name: 'Back to catalog' }).click();
+
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(page.getByRole('heading', { name: 'Catalog', exact: true })).toBeVisible();
+  });
+
+  test('loads the product after an explicit retry succeeds', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:success'] }, async ({ page }) => {
+    const recoveredProduct = {
+      id: 999999, title: 'Recovered product', category: 'Candles',
+      description: 'Product restored', price: 45, gallery_urls: [],
+    };
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+    );
+    await page.goto('/products/999999');
+    await expect(page.getByText('Product unavailable')).toBeVisible();
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(recoveredProduct) })
+    );
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+
+    await expect(page.getByRole('heading', { name: recoveredProduct.title })).toBeVisible();
+    await expect(page.getByText('$45', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add to cart' })).toBeVisible();
+  });
+
+  test('keeps a failed product recoverable after another rejected retry', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:failure'] }, async ({ page }) => {
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+    );
+    await page.goto('/products/999999');
+    await expect(page.getByText('Product unavailable')).toBeVisible();
+    const retryResponse = page.waitForResponse((response) => response.url().endsWith('/products/999999/'));
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+    expect((await retryResponse).status()).toBe(500);
+
+    await expect(page.getByText('Product unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to catalog' })).toBeVisible();
+  });
+
+  test('shows a missing product when retry returns 404', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:error'] }, async ({ page }) => {
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+    );
+    await page.goto('/products/999999');
+    await expect(page.getByText('Product unavailable')).toBeVisible();
+    await page.route('**/products/999999/', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    );
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+
+    await expect(page.getByText('Product not found.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to catalog' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+  });
+
+  test('keeps a network failure recoverable', { tag: [...CATALOG_PRODUCT_DETAIL, '@outcome:failure'] }, async ({ page }) => {
+    await page.route('**/products/999999/', (route) => route.abort('failed'));
+
+    await page.goto('/products/999999');
+
+    await expect(page.getByText('Product unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Back to catalog' })).toBeVisible();
   });
 
