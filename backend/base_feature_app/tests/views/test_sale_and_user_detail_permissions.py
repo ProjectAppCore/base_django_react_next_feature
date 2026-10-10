@@ -1,14 +1,15 @@
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django_attachments.models import Library
 from rest_framework import status
 
 from base_feature_app.models import Product, Sale, SoldProduct
-from django_attachments.models import Library
 
 
 @pytest.fixture
 def target_user(db):
+    """Create a user whose phone can be retrieved by staff."""
     return get_user_model().objects.create_user(
         email='target@example.com', password='pass1234', phone='5551234',
     )
@@ -16,6 +17,7 @@ def target_user(db):
 
 @pytest.fixture
 def customer_client(api_client, db, settings):
+    """Authenticate a non-staff user carrying an admin role label."""
     settings.RECAPTCHA_SECRET_KEY = ''
     get_user_model().objects.create_user(
         email='customer@example.com', password='pass1234', role='admin', is_staff=False,
@@ -30,6 +32,7 @@ def customer_client(api_client, db, settings):
 
 @pytest.fixture
 def staff_client(api_client, db, settings):
+    """Authenticate staff carrying a customer role label."""
     settings.RECAPTCHA_SECRET_KEY = ''
     get_user_model().objects.create_user(
         email='staff@example.com', password='pass1234', role='customer', is_staff=True,
@@ -94,6 +97,7 @@ def test_user_detail_requires_staff(api_client):
 
 @pytest.mark.django_db
 def test_sale_detail_rejects_customer_jwt(customer_client, sale):
+    """Deny an existing sale detail to a non-staff JWT holder."""
     response = customer_client.get(reverse('sale-detail', kwargs={'sale_id': sale.id}))
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -102,6 +106,7 @@ def test_sale_detail_rejects_customer_jwt(customer_client, sale):
 
 @pytest.mark.django_db
 def test_user_detail_rejects_customer_jwt(customer_client, target_user):
+    """Deny an existing user detail to a non-staff JWT holder."""
     response = customer_client.get(reverse('user-detail', kwargs={'user_id': target_user.id}))
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -113,6 +118,7 @@ def test_user_detail_rejects_customer_jwt(customer_client, target_user):
     ('user-detail', {'user_id': 999999}), ('sale-detail', {'sale_id': 999999}),
 ])
 def test_admin_detail_hides_missing_object_from_customer(customer_client, route, lookup):
+    """Deny non-staff access before revealing object existence."""
     response = customer_client.get(reverse(route, kwargs=lookup))
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -121,6 +127,7 @@ def test_admin_detail_hides_missing_object_from_customer(customer_client, route,
 
 @pytest.mark.django_db
 def test_sale_detail_returns_address_for_staff(staff_client, sale):
+    """Return an existing sale address to authenticated staff."""
     response = staff_client.get(reverse('sale-detail', kwargs={'sale_id': sale.id}))
 
     assert response.status_code == status.HTTP_200_OK
@@ -130,6 +137,7 @@ def test_sale_detail_returns_address_for_staff(staff_client, sale):
 
 @pytest.mark.django_db
 def test_user_detail_returns_phone_for_staff(staff_client, target_user):
+    """Return an existing user phone to authenticated staff."""
     response = staff_client.get(reverse('user-detail', kwargs={'user_id': target_user.id}))
 
     assert response.status_code == status.HTTP_200_OK
@@ -141,6 +149,7 @@ def test_user_detail_returns_phone_for_staff(staff_client, target_user):
     ('user-detail', {'user_id': 999999}), ('sale-detail', {'sale_id': 999999}),
 ])
 def test_admin_detail_returns_not_found_to_staff(staff_client, route, lookup):
+    """Report a missing administrative object to authenticated staff."""
     response = staff_client.get(reverse(route, kwargs=lookup))
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -152,6 +161,7 @@ def test_admin_detail_returns_not_found_to_staff(staff_client, route, lookup):
     ('user-detail', {'user_id': 999999}), ('sale-detail', {'sale_id': 999999}),
 ])
 def test_admin_detail_rejects_invalid_jwt(api_client, route, lookup):
+    """Reject malformed JWTs before looking up administrative objects."""
     api_client.credentials(HTTP_AUTHORIZATION='Bearer invalid-token')
 
     response = api_client.get(reverse(route, kwargs=lookup))
