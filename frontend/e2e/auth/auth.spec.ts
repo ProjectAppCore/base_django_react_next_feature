@@ -184,4 +184,23 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/.*forgot-password/);
   });
 
+
+  test('allows retrying a failed recovery email', { tag: [...AUTH_FORGOT_PASSWORD_FORM, '@outcome:failure'] }, async ({ page }) => {
+    const responses = [
+      { status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Failed to send email' }) },
+      { status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Code sent successfully' }) },
+    ];
+    await page.route('**/send_passcode/', (route) => route.fulfill(responses.shift()!));
+    await page.goto('/forgot-password');
+    await page.getByPlaceholder('Email').fill('recovery@example.invalid');
+
+    await page.getByRole('button', { name: 'Send verification code' }).click();
+
+    await expect(page.getByText('Failed to send email')).toBeVisible();
+    await expect(page.getByPlaceholder('Email')).toHaveValue('recovery@example.invalid');
+    await expect(page.getByRole('button', { name: 'Send verification code' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Send verification code' }).click();
+    await expect(page.getByPlaceholder('Recovery code')).toBeVisible();
+  });
+
 });
