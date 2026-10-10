@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { Page, FullConfig } from '@playwright/test';
+import type { Page, FullConfig, TestConfig } from '@playwright/test';
 
 import { test, expect } from '../test-with-coverage';
 import { testUser, testAdminUser } from '../fixtures';
@@ -32,7 +33,13 @@ async function prepareAccounts(config: FullConfig) {
       || process.env.DJANGO_DB_NAME !== databasePath) {
     throw new Error('Backoffice E2E requires settings_dev with dotenv disabled and this worktree SQLite database.');
   }
-  const servers = Array.isArray(config.webServer) ? config.webServer : [config.webServer];
+  if (!config.configFile) {
+    throw new Error('Backoffice E2E requires the original Playwright configuration file.');
+  }
+  // FullConfig.webServer is null for multiple servers; read the selected source config.
+  const configModule = createRequire(__filename)(config.configFile) as TestConfig & { default?: TestConfig };
+  const webServer = (configModule.default ?? configModule).webServer;
+  const servers = Array.isArray(webServer) ? webServer : [webServer];
   if (servers.length !== 2 || servers.some((server) => !server || server.reuseExistingServer !== false)) {
     throw new Error('Backoffice E2E requires two new servers; existing servers cannot be reused.');
   }
