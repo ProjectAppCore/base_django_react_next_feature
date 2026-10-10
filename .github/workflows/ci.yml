@@ -113,9 +113,25 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
+      - name: Verify npm audit policy safeguards
+        run: node --test scripts/__tests__/npm-audit-gate.test.cjs
+
+      - name: Audit all frontend dependencies
+        run: |
+          if npm audit --include=dev --include=optional --include=peer --json > npm-audit.json; then
+            audit_status=0
+          else
+            audit_status=$?
+          fi
+          if [ "$audit_status" -gt 1 ]; then
+            cat npm-audit.json
+            exit "$audit_status"
+          fi
+          node scripts/npm-audit-gate.cjs npm-audit.json package-lock.json npm-audit-policy.json .
+          npm audit --omit=dev --include=optional --include=peer --audit-level=high
+
       - name: Verify frontend dependencies and build
         run: |
-          npm audit --audit-level=high
           npm run check:install-scripts
           npm run lint
           npm run typecheck
@@ -145,6 +161,8 @@ jobs:
           path: |
             frontend/coverage/coverage-summary.json
             frontend/coverage/jest-results.json
+            frontend/npm-audit.json
+            frontend/npm-audit-policy.json
           retention-days: 5
 
   # ───────────────────────────────────────────
