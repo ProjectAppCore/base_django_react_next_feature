@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdated": "2026-08-13",
+  "lastUpdated": "2026-10-10",
   "flows": {
     "home-loads": {
       "name": "Home page loads",
@@ -95,6 +95,24 @@
         "success"
       ]
     },
+    "auth-backoffice-access": {
+      "name": "Administrator access to backoffice",
+      "module": "auth",
+      "roles": [
+        "guest",
+        "user",
+        "staff"
+      ],
+      "priority": "P1",
+      "description": "Only users with is_staff can load backoffice data; regular users see access denied, pending sessions stay hidden, and API errors remain visible",
+      "expectedSpecs": 1,
+      "outcomes": [
+        "success",
+        "error",
+        "display",
+        "failure"
+      ]
+    },
     "blog-list-view": {
       "name": "View blog listing",
       "module": "blog",
@@ -116,10 +134,13 @@
         "shared"
       ],
       "priority": "P2",
-      "description": "User clicks a blog card and views the detail page with matching title",
+      "description": "User views a blog detail; invalid or missing IDs show not found, temporary failures offer Retry, and recovery renders the requested blog",
       "expectedSpecs": 1,
       "outcomes": [
-        "display"
+        "display",
+        "error",
+        "failure",
+        "success"
       ]
     },
     "blog-detail-back": {
@@ -404,7 +425,7 @@
         "shared"
       ],
       "priority": "P1",
-      "description": "End-to-end: home → catalog → product detail → add to cart → checkout → fill form → submit enabled",
+      "description": "End-to-end: catalog → product detail → cart → checkout → submit to the real API → persisted sale with HTTP 201 → success message and cleared cart",
       "expectedSpecs": 1,
       "outcomes": [
         "success"

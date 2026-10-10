@@ -54,6 +54,7 @@ jobs:
       - name: Verify and install locked Python dependencies
         run: |
           python -m pip install --requirement requirements-tools.txt
+          cp requirements.txt /tmp/requirements.txt
           python -m piptools compile --generate-hashes --no-header --resolver=backtracking --strip-extras --output-file=/tmp/requirements.txt requirements.in
           diff --unified requirements.txt /tmp/requirements.txt
           python -m pip install --require-hashes --requirement requirements.txt
@@ -205,6 +206,13 @@ jobs:
         run: npx playwright test --reporter='json,./e2e/reporters/flow-coverage-reporter.mjs'
         env:
           CI: 'true'
+          PYTHON_DOTENV_DISABLED: '1'
+          DJANGO_SETTINGS_MODULE: base_feature_project.settings_dev
+          DJANGO_DB_ENGINE: django.db.backends.sqlite3
+          DJANGO_DB_NAME: ${{ github.workspace }}/backend/db.sqlite3
+          NEXT_PUBLIC_BACKEND_ORIGIN: http://127.0.0.1:8000
+          NEXT_PUBLIC_API_BASE_URL: /api
+          NEXT_PUBLIC_API_URL: /api
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-results/playwright-results.json
 
       - name: Upload E2E flow coverage

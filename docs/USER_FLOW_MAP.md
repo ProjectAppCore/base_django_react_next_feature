@@ -4,8 +4,10 @@
 
 Use this document to understand each flow's steps, branching conditions, role restrictions, and API contracts before writing or reviewing E2E tests.
 
-**Version:** 1.0.0
-**Last Updated:** 2026-02-24
+**Version:** 1.0.1
+**Last Updated:** 2026-10-10
+
+Actualización de esta ronda: compras completas o revertidas, acceso administrativo y recuperación del detalle de blogs. El registro ejecutable de los flujos E2E está en `frontend/e2e/flow-definitions.json`.
 
 ---
 
@@ -30,6 +32,7 @@ Use this document to understand each flow's steps, branching conditions, role re
 | `auth-forgot-password` | Forgot Password | auth | P2 | guest | `/forgot-password` |
 | `auth-sign-out` | Sign Out | auth | P2 | user | `/dashboard` |
 | `auth-session-persistence` | Session Persistence | auth | P2 | user | any protected route |
+| `auth-backoffice-access` | Acceso administrativo | auth | P1 | guest, user, staff | `/dashboard`, `/backoffice` |
 | `public-home` | Home Page | public | P2 | guest | `/` |
 | `public-navigation` | Site Navigation | public | P3 | guest | all pages |
 | `public-catalog-browse` | Browse Catalog | public | P2 | guest | `/catalog` |
@@ -390,20 +393,25 @@ Use this document to understand each flow's steps, branching conditions, role re
 | **Frontend route** | `/blogs/[blogId]` |
 | **API endpoints** | `GET /api/blogs-data/[blogId]/` |
 
-**Preconditions:** Blog with given ID exists.
+**Preconditions:** La ruta contiene un identificador de blog; puede ser inválido o corresponder a un blog inexistente.
 
 **Steps:**
 
 1. User navigates to `/blogs/[blogId]`.
-2. Frontend fetches blog detail data.
-3. Page renders blog title, content, and associated media.
-4. User can navigate back to `/blogs` via browser back button.
+2. Con un identificador válido, la página muestra "Loading..." mientras pide el detalle.
+3. Si el blog existe, muestra su título, contenido y media asociada.
+4. El usuario puede volver a `/blogs`; si ocurre un fallo temporal, puede pulsar **Retry**.
 
 **Branching conditions:**
 
 | Condition | Behavior |
 |-----------|----------|
-| Blog not found | Loading state or fallback |
+| Identificador inválido o API `404` | "Blog not found." y enlace **Back to blogs**; termina la carga |
+| Fallo de red o API `5xx` | "Blog unavailable" y botón **Retry**; termina la carga |
+| Retry tras un fallo temporal | Vuelve a pedir el detalle; una respuesta correcta muestra el blog |
+| Cambia el identificador durante una petición | Se ignora la respuesta anterior para no mostrar otro blog |
+
+Registro E2E relacionado: `blog-detail-view`, con resultados `display`, `error`, `failure` y `success`.
 
 ---
 
@@ -523,7 +531,7 @@ Use this document to understand each flow's steps, branching conditions, role re
    }
    ```
 7. Frontend sends `POST /api/create-sale/` with payload.
-8. Backend creates `Sale` + associated `SoldProduct` records (HTTP 201).
+8. El backend crea la venta, sus líneas y sus relaciones en una sola transacción (HTTP `201`); ante un fallo revierte todas esas escrituras.
 9. Frontend clears cart via `cartStore.clearCart()`.
 10. Success message: "Checkout completed."
 
@@ -532,9 +540,13 @@ Use this document to understand each flow's steps, branching conditions, role re
 | Condition | Behavior |
 |-----------|----------|
 | Cart is empty | **Complete checkout** button disabled (`disabled={!items.length}`) |
-| API failure | Error message: "Could not complete checkout." |
+| API failure | "Could not complete checkout."; conserva carrito y formulario para corregir o reintentar |
 | Button shows loading state | Text changes to "..." during submission |
-| Invalid product ID in payload | `400` with serializer errors |
+| Producto inexistente en el payload | `400` con errores del serializer; no persiste la venta ni sus líneas |
+| Producto eliminado después de validar | `400`; revierte incluso las líneas creadas antes del producto eliminado |
+| Reintento después de corregir un producto inválido | Crea una única venta completa; el rechazo anterior no deja registros parciales |
+
+Registro E2E relacionado: `purchase-complete-flow` usa una respuesta `201` real y comprueba los datos devueltos, la confirmación y el carrito vacío.
 
 ---
 
@@ -553,8 +565,8 @@ Use this document to understand each flow's steps, branching conditions, role re
 
 1. User navigates to `/dashboard`.
 2. `useRequireAuth()` hook validates the token.
-3. If authenticated, page renders: heading "Dashboard", link to **Backoffice**, **Sign out** button.
-4. User can click **Backoffice** to navigate to `/backoffice`.
+3. Si está autenticado, muestra "Dashboard" y **Sign out**. El enlace **Backoffice** aparece únicamente con `is_staff = true`.
+4. Un administrador puede pulsar **Backoffice** para navegar a `/backoffice`.
 5. User can click **Sign out** to clear session (see `auth-sign-out`).
 
 **Branching conditions:**
@@ -563,6 +575,7 @@ Use this document to understand each flow's steps, branching conditions, role re
 |-----------|----------|
 | Not authenticated | Redirect to `/sign-in` |
 | Token expired | Attempt refresh; if fail, redirect to `/sign-in` |
+| Usuario autenticado sin `is_staff` | Puede usar Dashboard; no aparece el enlace Backoffice |
 
 ---
 
@@ -583,7 +596,7 @@ Use this document to understand each flow's steps, branching conditions, role re
 
 1. User navigates to `/backoffice`.
 2. `useRequireAuth()` hook validates the token.
-3. Frontend fetches `GET /api/users/` with Bearer token.
+3. Espera a que termine la restauración de la sesión y confirma `is_staff`; solo entonces pide `GET /api/users/` con Bearer token.
 4. Users table renders columns: **Email**, **Role**, **Staff**, **Active**.
 5. Each row shows user data.
 
@@ -592,8 +605,14 @@ Use this document to understand each flow's steps, branching conditions, role re
 | Condition | Behavior |
 |-----------|----------|
 | Not authenticated | Redirect to `/sign-in` |
-| Not staff | `403` error — "Could not load backoffice data. Make sure you are signed in with a staff user." |
+| Sesión pendiente | "Checking access..."; no pide ni muestra datos administrativos |
+| Usuario autenticado sin `is_staff` | "Access denied", "Admin access required." y enlace **Back to dashboard**; no pide ni muestra las tablas |
+| API `403` aunque la sesión local parezca administrativa | Muestra la misma denegación y oculta los datos; el permiso real lo decide la API |
+| Fallo de red o API `5xx` | "Could not load backoffice data."; no presenta el fallo como una lista vacía correcta |
+| Cambio de sesión o pérdida del permiso | Limpia los datos administrativos anteriores |
 | No users | "No data" row shown |
+
+Las lecturas `GET /api/users/` y `GET /api/users/[id]/` exigen `is_staff`: anónimo recibe `403` con "Authentication required."; un usuario autenticado sin permiso recibe `403` con "Admin access required." antes de buscar el objeto. Un administrador conserva `200` o `404` con "Not found.". Un JWT inválido conserva el `401` de autenticación.
 
 ---
 
@@ -619,8 +638,11 @@ Use this document to understand each flow's steps, branching conditions, role re
 
 | Condition | Behavior |
 |-----------|----------|
-| Not staff | Same error as `backoffice-users-list` (both fetched in parallel) |
+| Sin permiso o API `403` | Misma denegación de acceso que `backoffice-users-list`; no muestra ventas |
+| Fallo temporal | "Could not load backoffice data." |
 | No sales | "No data" row shown |
+
+Las lecturas `GET /api/sales/` y `GET /api/sales/[id]/` siguen el mismo contrato administrativo que las lecturas de usuarios. El registro E2E `auth-backoffice-access` cubre acceso permitido, denegación, sesión pendiente y fallo temporal con resultados `success`, `error`, `display` y `failure`.
 
 ---
 
