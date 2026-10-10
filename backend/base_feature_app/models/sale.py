@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, router, transaction
 from base_feature_app.models import Product
 
 class SoldProduct(models.Model):
@@ -25,9 +25,12 @@ class Sale(models.Model):
     def __str__(self):
         return self.email
 
-    def delete(self, *args, **kwargs):
-        # Delete all sold products associated with this sale
-        for sold_product in self.sold_products.all():
-            sold_product.delete()
-        # Call the superclass delete method
-        super().delete(*args, **kwargs)
+    def delete(self, using=None, keep_parents=False):
+        using = using or router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            sold_product_ids = list(self.sold_products.using(using).values_list('pk', flat=True))
+            super().delete(using=using, keep_parents=keep_parents)
+            SoldProduct.objects.using(using).filter(
+                pk__in=sold_product_ids,
+                sale__isnull=True,
+            ).delete()
