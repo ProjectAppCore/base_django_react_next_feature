@@ -1,3 +1,5 @@
+"""Verify sale serializer product data and calculated totals."""
+
 import pytest
 from django_attachments.models import Library
 from rest_framework.exceptions import ValidationError

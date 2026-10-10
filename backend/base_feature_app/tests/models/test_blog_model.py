@@ -1,3 +1,5 @@
+"""Verify blog model display and image-library cleanup."""
+
 import io
 
 import pytest
@@ -24,6 +26,7 @@ def _placeholder_image(name='placeholder.webp'):
 
 @pytest.mark.django_db
 def test_blog_delete_removes_library():
+    """Deleting a blog removes its associated image library."""
     library = Library.objects.create(title='Blog Image')
     Attachment.objects.create(library=library, file=_placeholder_image(), original_name='placeholder.webp', rank=0)
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
@@ -36,6 +39,7 @@ def test_blog_delete_removes_library():
 
 @pytest.mark.django_db
 def test_blog_str_representation():
+    """The blog string representation uses its title."""
     library = Library.objects.create(title='Blog Image')
     blog = Blog.objects.create(title='My Blog', description='D', category='C', image=library)
 
@@ -44,6 +48,7 @@ def test_blog_str_representation():
 
 @pytest.mark.django_db
 def test_blog_delete_handles_missing_library():
+    """Deleting a blog tolerates an already removed image library."""
     library = Library.objects.create(title='Blog Image')
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
 

@@ -1,3 +1,5 @@
+"""Verify authentication token payloads and email-delivery outcomes."""
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -6,6 +8,7 @@ from base_feature_app.utils import auth_utils
 
 @pytest.mark.django_db
 def test_generate_auth_tokens_contains_user_payload():
+    """Generated authentication tokens include the authenticated user's data."""
     User = get_user_model()
     user = User.objects.create_user(email='tokens@example.com', password='pass1234')
 
@@ -19,6 +22,7 @@ def test_generate_auth_tokens_contains_user_payload():
 
 @pytest.mark.django_db
 def test_send_password_reset_code_success(monkeypatch):
+    """Successful password-reset email delivery returns success."""
     User = get_user_model()
     user = User.objects.create_user(email='reset@example.com', password='pass1234', first_name='Reset')
     sent = {}
@@ -36,6 +40,7 @@ def test_send_password_reset_code_success(monkeypatch):
 
 @pytest.mark.django_db
 def test_send_password_reset_code_failure(monkeypatch):
+    """Failed password-reset email delivery returns failure."""
     User = get_user_model()
     user = User.objects.create_user(email='resetfail@example.com', password='pass1234', first_name='Reset')
 
@@ -49,6 +54,7 @@ def test_send_password_reset_code_failure(monkeypatch):
 
 @pytest.mark.django_db
 def test_send_verification_code_success(monkeypatch):
+    """Successful verification email delivery returns success."""
     sent = {}
 
     def fake_send_mail(subject, message, from_email, recipient_list, fail_silently):
@@ -64,6 +70,7 @@ def test_send_verification_code_success(monkeypatch):
 
 @pytest.mark.django_db
 def test_send_verification_code_failure(monkeypatch):
+    """Failed verification email delivery returns failure."""
     def fake_send_mail(*_args, **_kwargs):
         raise RuntimeError('send failed')
 

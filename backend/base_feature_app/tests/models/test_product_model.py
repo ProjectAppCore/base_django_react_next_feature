@@ -1,3 +1,5 @@
+"""Verify product display and gallery cleanup."""
+
 import io
 from pathlib import Path
 
@@ -54,6 +56,7 @@ def test_product_delete_removes_library_and_attachments():
 
 @pytest.mark.django_db
 def test_product_str_representation():
+    """The product string representation uses its title."""
     gallery = Library.objects.create(title='Gallery')
     product = Product.objects.create(
         title='My Product',

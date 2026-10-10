@@ -1,3 +1,5 @@
+"""Verify the legacy URL module remains executable."""
+
 import importlib
 import importlib.util
 from pathlib import Path
@@ -26,6 +28,7 @@ def test_url_modules_import_and_have_patterns():
 
 @pytest.mark.django_db
 def test_module_urls_py_is_executable():
+    """The legacy URL module executes without raising an error."""
     urls_path = Path(__file__).resolve().parents[2] / 'urls.py'
     spec = importlib.util.spec_from_file_location('base_feature_app.urls_module', urls_path)
     module = importlib.util.module_from_spec(spec)

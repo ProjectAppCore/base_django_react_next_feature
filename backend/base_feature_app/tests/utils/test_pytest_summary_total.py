@@ -1,3 +1,5 @@
+"""Verify the combined testing summary displayed by pytest."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -90,6 +92,7 @@ def _run_fake_terminal_summary(tmp_path, monkeypatch):
 
 
 def test_pytest_summary_prints_combined_total(tmp_path, monkeypatch):
+    """The pytest summary prints the combined coverage total."""
     output = _run_fake_terminal_summary(tmp_path, monkeypatch)
 
     combined_lines = [line for line in output if "TOTAL (combined)" in line]
