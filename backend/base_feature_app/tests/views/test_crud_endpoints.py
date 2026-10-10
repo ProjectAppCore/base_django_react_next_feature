@@ -15,6 +15,7 @@ def staff_user(db):
 
 @pytest.fixture
 def staff_client(api_client, staff_user, settings):
+    """Authenticate staff through the real sign-in endpoint."""
     settings.RECAPTCHA_SECRET_KEY = ''
     response = api_client.post(reverse('sign_in'), {
         'email': staff_user.email, 'password': 'pass1234',
@@ -26,6 +27,7 @@ def staff_client(api_client, staff_user, settings):
 
 @pytest.fixture
 def customer_client(api_client, db, settings):
+    """Authenticate a non-staff user carrying an admin role label."""
     settings.RECAPTCHA_SECRET_KEY = ''
     get_user_model().objects.create_user(
         email='customer@example.com', password='pass1234', role='admin', is_staff=False,
@@ -79,6 +81,7 @@ def test_sales_list_requires_staff(api_client):
 @pytest.mark.django_db
 @pytest.mark.parametrize('route', ['user-list', 'sale-list'])
 def test_admin_list_rejects_customer_jwt(customer_client, route):
+    """Deny administrative lists to a non-staff JWT holder."""
     response = customer_client.get(reverse(route))
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -88,6 +91,7 @@ def test_admin_list_rejects_customer_jwt(customer_client, route):
 @pytest.mark.django_db
 @pytest.mark.parametrize('route', ['user-list', 'sale-list'])
 def test_admin_list_rejects_invalid_jwt(api_client, route):
+    """Reject malformed JWTs before exposing administrative lists."""
     api_client.credentials(HTTP_AUTHORIZATION='Bearer invalid-token')
 
     response = api_client.get(reverse(route))
@@ -97,6 +101,7 @@ def test_admin_list_rejects_invalid_jwt(api_client, route):
 
 @pytest.mark.django_db
 def test_sales_list_returns_sale_for_staff(staff_client):
+    """Return the existing sale list payload to authenticated staff."""
     from base_feature_app.models import Sale
 
     sale = Sale.objects.create(

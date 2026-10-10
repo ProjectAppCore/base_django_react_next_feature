@@ -64,6 +64,7 @@ describe('DashboardPage', () => {
 
     render(<DashboardPage />);
 
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Backoffice' })).not.toBeInTheDocument();
   });
 
