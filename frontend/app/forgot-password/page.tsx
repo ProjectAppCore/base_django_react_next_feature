@@ -111,6 +111,7 @@ export default function ForgotPasswordPage() {
             <input
               className="border border-border rounded px-3 py-2 w-full text-center text-2xl tracking-widest bg-card"
               placeholder="Recovery code"
+              aria-label="Recovery code"
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value)}

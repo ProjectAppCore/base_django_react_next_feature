@@ -148,8 +148,8 @@ test.describe('Authentication', () => {
     await page.goto('/forgot-password');
     await page.getByPlaceholder('Email').fill('recovery@example.invalid');
     await page.getByRole('button', { name: 'Send verification code' }).click();
-    await page.getByPlaceholder('Recovery code').fill(token);
-    await expect(page.getByPlaceholder('Recovery code')).toHaveValue(token);
+    await page.getByRole('textbox', { name: 'Recovery code', exact: true }).fill(token);
+    await expect(page.getByRole('textbox', { name: 'Recovery code', exact: true })).toHaveValue(token);
     await page.getByPlaceholder('New Password', { exact: true }).fill('new-password');
     await page.getByPlaceholder('Confirm New Password').fill('new-password');
     const submission = page.waitForRequest('**/verify_passcode_and_reset_password/');
@@ -173,14 +173,14 @@ test.describe('Authentication', () => {
     await page.goto('/forgot-password');
     await page.getByPlaceholder('Email').fill('recovery@example.invalid');
     await page.getByRole('button', { name: 'Send verification code' }).click();
-    await page.getByPlaceholder('Recovery code').fill(token);
+    await page.getByRole('textbox', { name: 'Recovery code', exact: true }).fill(token);
     await page.getByPlaceholder('New Password', { exact: true }).fill('new-password');
     await page.getByPlaceholder('Confirm New Password').fill('new-password');
 
     await page.getByRole('button', { name: 'Reset password', exact: true }).click();
 
     await expect(page.getByText('Invalid or expired code')).toBeVisible();
-    await expect(page.getByPlaceholder('Recovery code')).toHaveValue(token);
+    await expect(page.getByRole('textbox', { name: 'Recovery code', exact: true })).toHaveValue(token);
     await expect(page).toHaveURL(/.*forgot-password/);
   });
 
@@ -200,7 +200,7 @@ test.describe('Authentication', () => {
     await expect(page.getByPlaceholder('Email')).toHaveValue('recovery@example.invalid');
     await expect(page.getByRole('button', { name: 'Send verification code' })).toBeEnabled();
     await page.getByRole('button', { name: 'Send verification code' }).click();
-    await expect(page.getByPlaceholder('Recovery code')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Recovery code', exact: true })).toBeVisible();
   });
 
 });
