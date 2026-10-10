@@ -1,3 +1,5 @@
+"""Verify authentication and password-recovery endpoint responses."""
+
 import logging
 from datetime import timedelta
 from unittest.mock import patch
@@ -16,18 +18,23 @@ from base_feature_app.views import auth as auth_views
 
 
 class DummyResponse:
+    """Represent an external HTTP response used by authentication endpoint tests."""
+
     def __init__(self, status_code=200, payload=None, text=''):
+        """Initialize the response status, JSON payload, and text body."""
         self.status_code = status_code
         self._payload = payload or {}
         self.text = text
 
     def json(self):
+        """Return the configured JSON response payload."""
         return self._payload
 
 
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_up_requires_email_and_password(mock_captcha, api_client):
+    """Sign-up rejects requests missing the required email or password."""
     response = api_client.post(reverse('sign_up'), {}, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -37,6 +44,7 @@ def test_sign_up_requires_email_and_password(mock_captcha, api_client):
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_up_rejects_existing_email(mock_captcha, api_client):
+    """Sign-up rejects an email address already registered to a user."""
     User = get_user_model()
     User.objects.create_user(email='existing@example.com', password='pass1234')
 
@@ -76,6 +84,7 @@ def test_sign_up_creates_user(mock_captcha, api_client):
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_in_requires_fields(mock_captcha, api_client):
+    """Sign-in rejects requests missing required credentials."""
     response = api_client.post(reverse('sign_in'), {}, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -85,6 +94,7 @@ def test_sign_in_requires_fields(mock_captcha, api_client):
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_in_rejects_unknown_user(mock_captcha, api_client):
+    """Sign-in rejects an unregistered email address."""
     response = api_client.post(
         reverse('sign_in'),
         {'email': 'missing@example.com', 'password': 'pass1234'},
@@ -98,6 +108,7 @@ def test_sign_in_rejects_unknown_user(mock_captcha, api_client):
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_in_rejects_invalid_password(mock_captcha, api_client):
+    """Sign-in rejects an incorrect password for an existing user."""
     User = get_user_model()
     User.objects.create_user(email='user@example.com', password='pass1234')
 
@@ -113,6 +124,7 @@ def test_sign_in_rejects_invalid_password(mock_captcha, api_client):
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_in_rejects_inactive_user(mock_captcha, api_client):
+    """Sign-in rejects an inactive account."""
     User = get_user_model()
     user = User.objects.create_user(email='inactive@example.com', password='pass1234')
     user.is_active = False
@@ -131,6 +143,7 @@ def test_sign_in_rejects_inactive_user(mock_captcha, api_client):
 @pytest.mark.django_db
 @patch('base_feature_app.views.auth.verify_recaptcha', return_value=True)
 def test_sign_in_success(mock_captcha, api_client):
+    """Valid sign-in credentials return authentication tokens."""
     User = get_user_model()
     User.objects.create_user(email='active@example.com', password='pass1234')
 
@@ -146,6 +159,7 @@ def test_sign_in_success(mock_captcha, api_client):
 
 @pytest.mark.django_db
 def test_google_login_requires_credential(api_client):
+    """Google login rejects a request without an identity credential."""
     response = api_client.post(reverse('google_login'), {}, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -216,7 +230,6 @@ def test_google_login_requires_email_when_payload_missing(api_client, monkeypatc
 @override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
 def test_google_login_creates_user_with_payload(api_client, monkeypatch):
     """Verifies Google login creates a new user when the token payload contains a valid audience and email."""
-
     payload = {
         'aud': 'client-1',
         'email': 'google@example.com',
@@ -250,7 +263,6 @@ def test_google_login_creates_user_with_payload(api_client, monkeypatch):
 @override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
 def test_google_login_updates_existing_user_names(api_client, monkeypatch):
     """Verifies Google login updates the first and last name of an existing user when the payload provides new values."""
-
     User = get_user_model()
     user = User.objects.create_user(email='existing@example.com', password='pass1234')
     user.first_name = ''
@@ -384,6 +396,7 @@ def test_google_login_sanitizes_invalid_json(api_client, monkeypatch, caplog):
 
 @pytest.mark.django_db
 def test_send_passcode_requires_email(api_client):
+    """Password-code requests require an email address."""
     response = api_client.post(reverse('send_passcode'), {}, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -392,6 +405,7 @@ def test_send_passcode_requires_email(api_client):
 
 @pytest.mark.django_db
 def test_send_passcode_returns_generic_message_for_missing_user(api_client):
+    """Password-code requests do not disclose whether an account exists."""
     response = api_client.post(
         reverse('send_passcode'),
         {'email': 'missing@example.com'},
@@ -405,6 +419,7 @@ def test_send_passcode_returns_generic_message_for_missing_user(api_client):
 
 @pytest.mark.django_db
 def test_send_passcode_success(api_client, monkeypatch):
+    """Password-code requests succeed when the email is delivered."""
     User = get_user_model()
     user = User.objects.create_user(email='send@example.com', password='pass1234')
 
@@ -422,6 +437,7 @@ def test_send_passcode_success(api_client, monkeypatch):
 
 @pytest.mark.django_db
 def test_send_passcode_failure(api_client, monkeypatch):
+    """Password-code requests report failed email delivery."""
     User = get_user_model()
     user = User.objects.create_user(email='fail@example.com', password='pass1234')
 
@@ -439,6 +455,7 @@ def test_send_passcode_failure(api_client, monkeypatch):
 
 @pytest.mark.django_db
 def test_verify_passcode_requires_fields(api_client):
+    """Password-code verification requires the expected request fields."""
     response = api_client.post(reverse('verify_passcode_reset'), {}, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -447,6 +464,7 @@ def test_verify_passcode_requires_fields(api_client):
 
 @pytest.mark.django_db
 def test_verify_passcode_rejects_invalid_email(api_client):
+    """Password-code verification rejects an unknown account email."""
     response = api_client.post(
         reverse('verify_passcode_reset'),
         {'email': 'missing@example.com', 'code': '123456', 'new_password': 'newpass'},
@@ -571,6 +589,7 @@ def test_verify_passcode_keeps_code_usable_after_password_rejection(api_client):
 
 @pytest.mark.django_db
 def test_update_password_requires_fields(api_client):
+    """Password updates require the current and replacement passwords."""
     User = get_user_model()
     user = User.objects.create_user(email='update-fields@example.com', password='pass1234')
     api_client.force_authenticate(user=user)
@@ -583,6 +602,7 @@ def test_update_password_requires_fields(api_client):
 
 @pytest.mark.django_db
 def test_update_password_rejects_wrong_current(api_client):
+    """Password updates reject an incorrect current password."""
     User = get_user_model()
     user = User.objects.create_user(email='update@example.com', password='pass1234')
 
@@ -640,6 +660,7 @@ def test_update_password_rejects_invalid_new_password(api_client, new_password):
 
 @pytest.mark.django_db
 def test_validate_token_requires_auth(api_client):
+    """Token validation rejects unauthenticated requests."""
     response = api_client.get(reverse('validate_token'))
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -647,6 +668,7 @@ def test_validate_token_requires_auth(api_client):
 
 @pytest.mark.django_db
 def test_validate_token_success(api_client):
+    """Token validation accepts an authenticated user."""
     User = get_user_model()
     user = User.objects.create_user(email='token@example.com', password='pass1234')
 

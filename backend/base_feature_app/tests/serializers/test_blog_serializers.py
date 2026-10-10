@@ -1,3 +1,5 @@
+"""Verify blog serializer image URLs and missing-image responses."""
+
 import io
 
 import pytest
@@ -23,6 +25,7 @@ def _placeholder_image(name='placeholder.webp'):
 
 @pytest.mark.django_db
 def test_blog_list_serializer_includes_absolute_image_url():
+    """Blog list serialization builds an absolute image URL from the request."""
     library = Library.objects.create(title='Blog Image')
     Attachment.objects.create(library=library, file=_placeholder_image(), original_name='placeholder.webp', rank=0)
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
@@ -36,6 +39,7 @@ def test_blog_list_serializer_includes_absolute_image_url():
 
 @pytest.mark.django_db
 def test_blog_list_serializer_returns_none_without_request():
+    """Blog list serialization returns no image URL without a request."""
     library = Library.objects.create(title='Blog Image')
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
 
@@ -46,6 +50,7 @@ def test_blog_list_serializer_returns_none_without_request():
 
 @pytest.mark.django_db
 def test_blog_serializer_returns_none_without_request():
+    """Blog serialization returns no image URL without a request."""
     library = Library.objects.create(title='Blog Image')
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
 
@@ -56,6 +61,7 @@ def test_blog_serializer_returns_none_without_request():
 
 @pytest.mark.django_db
 def test_blog_serializer_returns_none_without_attachment(monkeypatch, tmp_path):
+    """Blog serialization returns no image URL when no attachment exists."""
     monkeypatch.setattr(django_settings, 'MEDIA_ROOT', tmp_path)
     library = Library.objects.create(title='Blog Image')
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
@@ -70,6 +76,7 @@ def test_blog_serializer_returns_none_without_attachment(monkeypatch, tmp_path):
 
 @pytest.mark.django_db
 def test_blog_detail_serializer_includes_image_url(monkeypatch, tmp_path):
+    """Blog detail serialization includes the associated image URL."""
     monkeypatch.setattr(django_settings, 'MEDIA_ROOT', tmp_path)
     library = Library.objects.create(title='Blog Image')
     Attachment.objects.create(library=library, file=_placeholder_image(), original_name='placeholder.webp', rank=0)
@@ -85,6 +92,7 @@ def test_blog_detail_serializer_includes_image_url(monkeypatch, tmp_path):
 
 @pytest.mark.django_db
 def test_blog_detail_serializer_returns_none_without_request():
+    """Blog detail serialization returns no image URL without a request."""
     library = Library.objects.create(title='Blog Image')
     blog = Blog.objects.create(title='T', description='D', category='C', image=library)
 
@@ -95,6 +103,7 @@ def test_blog_detail_serializer_returns_none_without_request():
 
 @pytest.mark.django_db
 def test_blog_serializer_includes_image_url(monkeypatch, tmp_path):
+    """Blog serialization includes the associated image URL."""
     monkeypatch.setattr(django_settings, 'MEDIA_ROOT', tmp_path)
     library = Library.objects.create(title='Blog Image')
     Attachment.objects.create(library=library, file=_placeholder_image(), original_name='placeholder.webp', rank=0)

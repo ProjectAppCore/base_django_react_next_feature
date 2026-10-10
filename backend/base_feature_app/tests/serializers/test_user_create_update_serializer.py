@@ -1,3 +1,5 @@
+"""Verify user serializer creation and update behavior."""
+
 import pytest
 
 from base_feature_app.models import User
@@ -26,6 +28,7 @@ def test_user_create_update_serializer_creates_with_password():
 
 @pytest.mark.django_db
 def test_user_create_update_serializer_updates_password_and_fields():
+    """Updating a user persists the supplied password and profile fields."""
     user = User.objects.create_user(email='update@example.com', password='oldpass')
 
     serializer = UserCreateUpdateSerializer(
@@ -43,6 +46,7 @@ def test_user_create_update_serializer_updates_password_and_fields():
 
 @pytest.mark.django_db
 def test_user_create_update_serializer_updates_without_password():
+    """Updating profile fields preserves the user's existing password."""
     user = User.objects.create_user(email='nopass@example.com', password='oldpass')
 
     serializer = UserCreateUpdateSerializer(
