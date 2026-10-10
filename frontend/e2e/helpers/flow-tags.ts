@@ -20,6 +20,7 @@ export const AUTH_SIGN_UP_FORM = ['@flow:auth-sign-up-form', '@module:auth', '@p
 export const AUTH_LOGIN_INVALID = ['@flow:auth-login-invalid', '@module:auth', '@priority:P1'];
 export const AUTH_PROTECTED_REDIRECT = ['@flow:auth-protected-redirect', '@module:auth', '@priority:P1'];
 export const AUTH_FORGOT_PASSWORD_FORM = ['@flow:auth-forgot-password-form', '@module:auth', '@priority:P2'];
+export const AUTH_BACKOFFICE_ACCESS = ['@flow:auth-backoffice-access', '@module:auth', '@priority:P1'];
 
 // ── Blog ──
 export const BLOG_LIST_VIEW = ['@flow:blog-list-view', '@module:blog', '@priority:P2'];

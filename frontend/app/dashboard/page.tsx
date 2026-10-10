@@ -8,6 +8,7 @@ import { useAuthStore } from '@/lib/stores/authStore';
 export default function DashboardPage() {
   const { isAuthenticated } = useRequireAuth();
   const signOut = useAuthStore((s) => s.signOut);
+  const isStaff = useAuthStore((s) => s.user?.is_staff === true);
 
   if (!isAuthenticated) return null;
 
@@ -17,9 +18,11 @@ export default function DashboardPage() {
       <p className="mt-2 text-muted-foreground">Protected route (JWT required).</p>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        <Link className="border border-border rounded px-3 py-2 hover:bg-accent hover:text-accent-foreground" href="/backoffice">
-          Backoffice
-        </Link>
+        {isStaff ? (
+          <Link className="border border-border rounded px-3 py-2 hover:bg-accent hover:text-accent-foreground" href="/backoffice">
+            Backoffice
+          </Link>
+        ) : null}
         <button className="bg-primary text-primary-foreground rounded px-3 py-2 hover:bg-primary/90" type="button" onClick={signOut}>
           Sign out
         </button>
