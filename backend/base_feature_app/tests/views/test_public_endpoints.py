@@ -60,6 +60,7 @@ def test_create_sale_validation_error(api_client):
 
 @pytest.fixture
 def sale_payload(product):
+    """Build checkout data with a valid product followed by a missing product."""
     return {
         'email': 'customer@example.com',
         'address': '123 Main Street',

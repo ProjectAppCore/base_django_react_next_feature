@@ -38,6 +38,7 @@ def test_sale_serializer_creates_sold_products():
 
 @pytest.fixture
 def sale_products(db):
+    """Create two products with separate galleries for deletion after sale validation."""
     return tuple(
         Product.objects.create(
             title=f'Product {index}',
@@ -53,6 +54,7 @@ def sale_products(db):
 
 @pytest.fixture
 def sale_payload(sale_products):
+    """Build a valid two-product sale payload for validation and rollback checks."""
     return {
         'email': 'customer@example.com',
         'address': 'A',
