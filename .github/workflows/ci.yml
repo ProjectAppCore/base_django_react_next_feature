@@ -54,6 +54,7 @@ jobs:
       - name: Verify and install locked Python dependencies
         run: |
           python -m pip install --requirement requirements-tools.txt
+          cp requirements.txt /tmp/requirements.txt
           python -m piptools compile --generate-hashes --no-header --resolver=backtracking --strip-extras --output-file=/tmp/requirements.txt requirements.in
           diff --unified requirements.txt /tmp/requirements.txt
           python -m pip install --require-hashes --requirement requirements.txt
@@ -112,9 +113,25 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
+      - name: Verify npm audit policy safeguards
+        run: node --test scripts/__tests__/npm-audit-gate.test.cjs
+
+      - name: Audit all frontend dependencies
+        run: |
+          if npm audit --include=dev --include=optional --include=peer --json > npm-audit.json; then
+            audit_status=0
+          else
+            audit_status=$?
+          fi
+          if [ "$audit_status" -gt 1 ]; then
+            cat npm-audit.json
+            exit "$audit_status"
+          fi
+          node scripts/npm-audit-gate.cjs npm-audit.json package-lock.json npm-audit-policy.json .
+          npm audit --omit=dev --include=optional --include=peer --audit-level=high
+
       - name: Verify frontend dependencies and build
         run: |
-          npm audit --audit-level=high
           npm run check:install-scripts
           npm run lint
           npm run typecheck
@@ -144,6 +161,8 @@ jobs:
           path: |
             frontend/coverage/coverage-summary.json
             frontend/coverage/jest-results.json
+            frontend/npm-audit.json
+            frontend/npm-audit-policy.json
           retention-days: 5
 
   # ───────────────────────────────────────────
@@ -205,6 +224,13 @@ jobs:
         run: npx playwright test --reporter='json,./e2e/reporters/flow-coverage-reporter.mjs'
         env:
           CI: 'true'
+          PYTHON_DOTENV_DISABLED: '1'
+          DJANGO_SETTINGS_MODULE: base_feature_project.settings_dev
+          DJANGO_DB_ENGINE: django.db.backends.sqlite3
+          DJANGO_DB_NAME: ${{ github.workspace }}/backend/db.sqlite3
+          NEXT_PUBLIC_BACKEND_ORIGIN: http://127.0.0.1:8000
+          NEXT_PUBLIC_API_BASE_URL: /api
+          NEXT_PUBLIC_API_URL: /api
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-results/playwright-results.json
 
       - name: Upload E2E flow coverage

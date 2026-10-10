@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "exception": {
+    "advisory": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+    "owner": "Base Django React Next template maintainers",
+    "reason": "Reviewed development-only ESLint chain. The glob pattern comes from trusted settings.next.rootDir, which is absent in the reviewed configuration; no untrusted application input path was found. The official advisory remains active and this is temporary risk acceptance, not a patch.",
+    "reviewedAt": "2026-10-10T00:00:00Z",
+    "expiresAt": "2026-10-24T00:00:00Z",
+    "packages": {
+      "eslint-config-next": {
+        "version": "16.3.8",
+        "node": "node_modules/eslint-config-next",
+        "via": "@next/eslint-plugin-next"
+      },
+      "@next/eslint-plugin-next": {
+        "version": "16.3.8",
+        "node": "node_modules/@next/eslint-plugin-next",
+        "via": "fast-glob"
+      },
+      "fast-glob": {
+        "version": "3.3.1",
+        "node": "node_modules/fast-glob",
+        "via": "micromatch"
+      },
+      "micromatch": {
+        "version": "4.0.8",
+        "node": "node_modules/micromatch",
+        "via": "braces"
+      },
+      "braces": {
+        "version": "3.0.3",
+        "node": "node_modules/braces"
+      }
+    },
+    "context": {
+      "eslint.config.mjs": "2759f45acd45b90e9d279847455148421659a483e95327b5c514d6d41b9ffdf2",
+      "package.json": "12b94479278c59e3726cb64d9e8aae19fca10ba80d101151ce4adab18030c901"
+    },
+    "repository": "ProjectAppCore/base_django_react_next_feature"
+  }
+}

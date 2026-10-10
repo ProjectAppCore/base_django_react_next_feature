@@ -1,5 +1,5 @@
 # Django application
-Django==6.1
+Django==6.1.1
 django-cleanup==9.0.0
 django-cors-headers==4.9.0
 django-dbbackup==5.3.0
@@ -27,6 +27,6 @@ ruff==0.16.4
 
 # Explicit transitive security boundaries
 Pygments==2.21.0
-PyJWT==2.13.0
+PyJWT==2.15.0
 sqlparse==0.6.0
-urllib3==2.7.0
+urllib3==2.8.0
