@@ -797,7 +797,14 @@ python3 scripts/run-tests-all-suites.py --coverage
 - In parallel mode, shows a live progress bar with per-suite status and elapsed time.
 - Keeps going even if a suite fails so you get all reports.
 - Prints a final summary with per-suite status and duration. Coverage highlights appear only when `--coverage` is enabled.
-- `--resume` re-runs only failed/unknown suites based on `test-reports/last-run.json`.
+- `--resume` skips successful suites only when the effective ordered command arguments,
+  resolved working directory, and effective environment match the recorded invocation.
+  Only a SHA-256 digest of the environment is stored, never its values. Failed suites,
+  changed invocations, and older metadata without a valid identity are run again.
+  The runner's report directory, log paths, run ID, timestamps, and output mode do not
+  affect this identity; arguments explicitly forwarded to a test tool are compared exactly.
+- `--resume` does **not** establish freshness of code, dependencies, data, or services
+  when the invocation is unchanged. Run without `--resume` to obtain fresh results.
 - Without `--resume`, logs and resume metadata are overwritten at the start of a run.
 - Jest output is run with `--silent` in this runner to avoid noisy console logs; run `npm run test` directly if you need console output.
 
