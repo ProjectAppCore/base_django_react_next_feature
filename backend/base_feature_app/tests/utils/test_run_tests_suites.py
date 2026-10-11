@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import builtins
 import importlib.util
+import io
 import json
 import sys
 import types
 from functools import partial
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "run-tests-all-suites.py"
@@ -39,6 +42,39 @@ def make_step_result(
         coverage=[],
         log_path=log_path,
     )
+
+
+def _default_identities():
+    """Describe the default suite invocations used by main."""
+    return {
+        "backend": run_tests_all_suites.prepare_backend_invocation(
+            REPO_ROOT / "backend", "", [], False,
+        ).identity(),
+        "frontend-unit": run_tests_all_suites.prepare_unit_invocation(
+            REPO_ROOT / "frontend", [], None, False,
+        ).identity(),
+        "frontend-e2e": run_tests_all_suites.prepare_e2e_invocation(
+            REPO_ROOT / "frontend", [], None,
+        ).identity(),
+    }
+
+
+def _capture_processes(monkeypatch, returncode=0):
+    """Capture only the external subprocess boundary without running test suites."""
+    calls = []
+    monkeypatch.setattr(run_tests_all_suites.os, "environ", {"SYNTHETIC_ENV": "safe"})
+
+    def popen(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        return types.SimpleNamespace(stdout=io.StringIO("synthetic output\n"), wait=lambda: returncode)
+
+    monkeypatch.setattr(run_tests_all_suites.subprocess, "Popen", popen)
+    return calls
+
+
+def _suite_argv(report_dir, skip_flags, extra_flags=()):
+    """Build a focused runner invocation with an isolated metadata destination."""
+    return ["run-tests-all-suites.py", "--resume", "--report-dir", str(report_dir), *skip_flags, *extra_flags]
 
 
 class _DummyFuture:
@@ -117,7 +153,7 @@ def test_select_suites_for_resume_filters_non_ok():
     ]
     resume_state = {
         "suites": {
-            "backend": {"status": "ok"},
+            "backend": {"status": "ok", "identity": _default_identities()["backend"]},
             "frontend-unit": {"status": "failed"},
         }
     }
@@ -125,6 +161,7 @@ def test_select_suites_for_resume_filters_non_ok():
     selected, all_passed = run_tests_all_suites.select_suites_for_resume(
         suite_runners,
         resume_state,
+        _default_identities(),
     )
 
     assert [name for name, _runner in selected] == ["frontend-unit"]
@@ -695,9 +732,9 @@ def test_main_resume_exits_when_suites_ok(tmp_path, monkeypatch):
         "run_id": "run123",
         "schema_version": 1,
         "suites": {
-            "backend": {"status": "ok"},
-            "frontend-unit": {"status": "ok"},
-            "frontend-e2e": {"status": "ok"},
+            "backend": {"status": "ok", "identity": _default_identities()["backend"]},
+            "frontend-unit": {"status": "ok", "identity": _default_identities()["frontend-unit"]},
+            "frontend-e2e": {"status": "ok", "identity": _default_identities()["frontend-e2e"]},
         },
     }
     resume_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -732,9 +769,9 @@ def test_main_resume_runs_failed_suites_only(tmp_path, monkeypatch):
         "run_id": "run123",
         "schema_version": 1,
         "suites": {
-            "backend": {"status": "ok"},
-            "frontend-unit": {"status": "failed", "returncode": 1},
-            "frontend-e2e": {"status": "ok"},
+            "backend": {"status": "ok", "identity": _default_identities()["backend"]},
+            "frontend-unit": {"status": "failed", "returncode": 1, "identity": _default_identities()["frontend-unit"]},
+            "frontend-e2e": {"status": "ok", "identity": _default_identities()["frontend-e2e"]},
         },
     }
     resume_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -803,3 +840,218 @@ def test_main_writes_resume_summary_file(tmp_path, monkeypatch):
     assert exit_code == 0
     assert payload["run_id"]
     assert set(payload["suites"].keys()) == {"backend", "frontend-unit", "frontend-e2e"}
+
+
+@pytest.mark.parametrize(
+    ("skip_flags", "before", "after", "expected_tail"),
+    [
+        (("--skip-unit", "--skip-e2e"), "--backend-args=test_old.py", "--backend-args=test_new.py", ["test_new.py"]),
+        (("--skip-unit", "--skip-e2e"), "--backend-markers=slow", "--backend-markers=fast", ["-m", "fast"]),
+        (("--skip-backend", "--skip-e2e"), "--unit-args=--runTestsByPath old.test.ts", "--unit-args=--runTestsByPath new.test.ts", ["--runTestsByPath", "new.test.ts"]),
+        (("--skip-backend", "--skip-unit"), "--e2e-args=old.spec.ts", "--e2e-args=new.spec.ts", ["new.spec.ts"]),
+        (("--skip-backend", "--skip-e2e"), "--unit-args=--config old.cjs", "--unit-args=--config new.cjs", ["--config", "new.cjs"]),
+    ],
+    ids=["backend-file", "backend-marker", "unit-file", "e2e-file", "unit-config"],
+)
+def test_resume_executes_changed_selection(tmp_path, monkeypatch, skip_flags, before, after, expected_tail):
+    """A changed test selection is executed rather than inheriting another selection's success."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, skip_flags, [before]))
+    run_tests_all_suites.main()
+
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, skip_flags, [after]))
+    exit_code = run_tests_all_suites.main()
+
+    assert exit_code == 0
+    assert len(calls) == 2
+    assert calls[-1]["command"][-len(expected_tail):] == expected_tail
+
+
+@pytest.mark.parametrize(
+    ("skip_flags", "option", "expected"),
+    [
+        (("--skip-backend", "--skip-e2e"), "--unit-workers", "--maxWorkers=2"),
+        (("--skip-backend", "--skip-unit"), "--e2e-workers", "--workers=2"),
+    ],
+    ids=["unit", "e2e"],
+)
+def test_resume_executes_changed_workers(tmp_path, monkeypatch, skip_flags, option, expected):
+    """A changed execution configuration invalidates the previous success."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, skip_flags, [option, "1"]))
+    run_tests_all_suites.main()
+
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, skip_flags, [option, "2"]))
+    run_tests_all_suites.main()
+
+    assert len(calls) == 2
+    assert expected in calls[-1]["command"]
+
+
+@pytest.mark.parametrize(
+    "invalid_identity",
+    [
+        lambda record: {"status": "ok", "returncode": 0, "command": record["command"]},
+        lambda record: {**record, "identity": {}},
+        lambda record: {**record, "identity": {**record["identity"], "command": "npm run test"}},
+        lambda record: {**record, "identity": {**record["identity"], "environment_sha256": "not-a-digest"}},
+        lambda record: {**record, "identity": {**record["identity"], "cwd": "relative"}},
+    ],
+    ids=["legacy", "missing-fields", "command-type", "digest", "cwd"],
+)
+def test_resume_executes_invalid_metadata(tmp_path, monkeypatch, invalid_identity):
+    """Legacy or malformed identity metadata cannot authorize skipping a suite."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-e2e")))
+    run_tests_all_suites.main()
+    metadata_path = tmp_path / run_tests_all_suites.RESUME_FILENAME
+    metadata = json.loads(metadata_path.read_text())
+    metadata["suites"]["frontend-unit"] = invalid_identity(metadata["suites"]["frontend-unit"])
+    metadata_path.write_text(json.dumps(metadata))
+
+    run_tests_all_suites.main()
+
+    assert len(calls) == 2
+    assert calls[-1]["command"] == ["npm", "run", "test", "--"]
+
+
+def test_resume_skips_identical_invocation(tmp_path, monkeypatch):
+    """An identical successful invocation is skipped without starting a subprocess."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-e2e")))
+    run_tests_all_suites.main()
+
+    exit_code = run_tests_all_suites.main()
+
+    assert exit_code == 0
+    assert len(calls) == 1
+
+
+def test_resume_executes_changed_cwd(tmp_path, monkeypatch):
+    """The same relative test command in another working directory executes again."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-e2e")))
+    run_tests_all_suites.main()
+
+    monkeypatch.setattr(run_tests_all_suites, "__file__", str(tmp_path / "other" / "scripts" / "runner.py"))
+    run_tests_all_suites.main()
+
+    assert len(calls) == 2
+    assert calls[0]["command"] == calls[1]["command"]
+    assert calls[1]["cwd"] == (tmp_path / "other" / "frontend").resolve()
+
+
+def test_resume_executes_changed_base_url(tmp_path, monkeypatch):
+    """Changing the application URL invalidates an otherwise identical Playwright invocation."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setenv("PLAYWRIGHT_BASE_URL", "http://127.0.0.1:3101")
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-unit")))
+    run_tests_all_suites.main()
+
+    monkeypatch.setenv("PLAYWRIGHT_BASE_URL", "http://127.0.0.1:3102")
+    run_tests_all_suites.main()
+
+    assert len(calls) == 2
+    assert calls[1]["env"]["PLAYWRIGHT_BASE_URL"] == "http://127.0.0.1:3102"
+
+
+def test_resume_metadata_omits_environment_values(tmp_path, monkeypatch, capsys):
+    """Environment values remain absent from persisted metadata and runner output."""
+    _capture_processes(monkeypatch)
+    monkeypatch.setenv("PLAYWRIGHT_BASE_URL", "http://sensitive.example.test:3101")
+    monkeypatch.setenv("API_SECRET_KEY", "synthetic-secret-value")
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-unit")))
+
+    run_tests_all_suites.main()
+
+    metadata_path = tmp_path / run_tests_all_suites.RESUME_FILENAME
+    public_output = metadata_path.read_text() + (tmp_path / "frontend-e2e.log").read_text() + capsys.readouterr().out
+    assert "synthetic-secret-value" not in public_output
+    assert "sensitive.example.test" not in public_output
+    assert len(json.loads(metadata_path.read_text())["suites"]["frontend-e2e"]["identity"]["environment_sha256"]) == 64
+
+
+def test_resume_ignores_runner_report_directory(tmp_path, monkeypatch):
+    """Moving runner metadata to another output directory preserves its invocation identity."""
+    calls = _capture_processes(monkeypatch)
+    first_reports = tmp_path / "first"
+    second_reports = tmp_path / "second"
+    monkeypatch.setattr(sys, "argv", _suite_argv(first_reports, ("--skip-backend", "--skip-e2e")))
+    run_tests_all_suites.main()
+    second_reports.mkdir()
+    (second_reports / run_tests_all_suites.RESUME_FILENAME).write_text(
+        (first_reports / run_tests_all_suites.RESUME_FILENAME).read_text(),
+    )
+
+    monkeypatch.setattr(sys, "argv", _suite_argv(second_reports, ("--skip-backend", "--skip-e2e"), ["--verbose"]))
+    run_tests_all_suites.main()
+
+    assert len(calls) == 1
+
+
+def test_resume_compares_argument_order(tmp_path, monkeypatch):
+    """Reordering explicit forwarded arguments does not inherit the old command's success."""
+    calls = _capture_processes(monkeypatch)
+    skip_flags = ("--skip-backend", "--skip-e2e")
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, skip_flags, ["--unit-args=first.test.ts second.test.ts"]))
+    run_tests_all_suites.main()
+
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, skip_flags, ["--unit-args=second.test.ts first.test.ts"]))
+    run_tests_all_suites.main()
+
+    assert len(calls) == 2
+    assert calls[-1]["command"][-2:] == ["second.test.ts", "first.test.ts"]
+
+
+def test_resume_ignores_environment_key_order(tmp_path, monkeypatch):
+    """Reordering identical environment entries preserves the successful invocation."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setattr(run_tests_all_suites.os, "environ", {"ONE": "1", "TWO": "2"})
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-e2e")))
+    run_tests_all_suites.main()
+
+    monkeypatch.setattr(run_tests_all_suites.os, "environ", {"TWO": "2", "ONE": "1"})
+    run_tests_all_suites.main()
+
+    assert len(calls) == 1
+
+
+def test_prepared_backend_invocation_preserves_report_data(tmp_path):
+    """Preparing a resume identity does not erase existing coverage data."""
+    coverage_path = tmp_path / ".coverage"
+    coverage_path.write_bytes(b"existing coverage")
+
+    invocation = run_tests_all_suites.prepare_backend_invocation(tmp_path, "slow", ["test_one.py"], True)
+    invocation.identity()
+
+    assert coverage_path.read_bytes() == b"existing coverage"
+    assert "--cov-report=term-missing" in invocation.command
+
+
+def test_prepared_invocation_executes_captured_environment(tmp_path, monkeypatch):
+    """Execution uses the same environment snapshot that authorized its resume identity."""
+    calls = _capture_processes(monkeypatch)
+    monkeypatch.setenv("PLAYWRIGHT_BASE_URL", "http://127.0.0.1:3101")
+    invocation = run_tests_all_suites.prepare_e2e_invocation(tmp_path, ["public/products.spec.ts"], "1")
+    identity = invocation.identity()
+    monkeypatch.setenv("PLAYWRIGHT_BASE_URL", "http://127.0.0.1:3102")
+
+    result = run_tests_all_suites.run_frontend_e2e(tmp_path, tmp_path, [], invocation=invocation)
+
+    assert calls[0]["env"]["PLAYWRIGHT_BASE_URL"] == "http://127.0.0.1:3101"
+    assert calls[0]["command"] == ["npx", "playwright", "test", "--workers=1", "public/products.spec.ts"]
+    assert result.identity == identity
+
+
+
+def test_resume_repeats_failed_invocation(tmp_path, monkeypatch):
+    """An identical invocation that failed previously executes again."""
+    calls = _capture_processes(monkeypatch, returncode=1)
+    monkeypatch.setattr(sys, "argv", _suite_argv(tmp_path, ("--skip-backend", "--skip-e2e")))
+    run_tests_all_suites.main()
+
+    exit_code = run_tests_all_suites.main()
+
+    assert exit_code == 1
+    assert len(calls) == 2
+    assert calls[0]["command"] == calls[1]["command"]
