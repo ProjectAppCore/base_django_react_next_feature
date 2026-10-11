@@ -4,12 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
-from base_feature_app.models import PasswordCode
-from base_feature_app.views import auth as auth_views
 from django.contrib.auth import get_user_model
 from django.db import OperationalError, close_old_connections, connection, connections
 from django.urls import reverse
 from rest_framework.test import APIClient
+
+from base_feature_app.models import PasswordCode
+from base_feature_app.views import auth as auth_views
 
 
 @pytest.fixture
