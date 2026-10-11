@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
+from rest_framework_simplejwt.tokens import AccessToken
 
 from base_feature_app.models import PasswordCode
 from base_feature_app.views import auth as auth_views
@@ -24,7 +25,7 @@ class DummyResponse:
     def __init__(self, status_code=200, payload=None, text=''):
         """Initialize the response status, JSON payload, and text body."""
         self.status_code = status_code
-        self._payload = payload or {}
+        self._payload = payload if payload is not None else {}
         self.text = text
 
     def json(self):
@@ -168,7 +169,7 @@ def test_google_login_requires_credential(api_client):
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='')
+@override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
 def test_google_login_invalid_credential_when_not_debug(api_client, monkeypatch):
     """Verifies Google login returns 401 when credential is invalid and the app is not in debug mode."""
 
@@ -188,8 +189,8 @@ def test_google_login_invalid_credential_when_not_debug(api_client, monkeypatch)
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
-def test_google_login_aud_mismatch_returns_error(api_client, monkeypatch):
+@pytest.mark.parametrize('debug', [False, True])
+def test_google_login_aud_mismatch_returns_error(api_client, monkeypatch, debug):
     """Verifies Google login returns 401 when the token audience does not match the configured client ID."""
 
     def fake_get(*_args, **_kwargs):
@@ -197,20 +198,21 @@ def test_google_login_aud_mismatch_returns_error(api_client, monkeypatch):
 
     monkeypatch.setattr(auth_views.requests, 'get', fake_get)
 
-    response = api_client.post(
-        reverse('google_login'),
-        {'credential': 'bad-aud', 'email': 'user@example.com'},
-        format='json',
-    )
+    with override_settings(DEBUG=debug, GOOGLE_OAUTH_CLIENT_ID='client-1'):
+        response = api_client.post(
+            reverse('google_login'),
+            {'credential': 'bad-aud', 'email': 'user@example.com'},
+            format='json',
+        )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()['error'] == 'Invalid Google client'
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=True)
-def test_google_login_requires_email_when_payload_missing(api_client, monkeypatch):
-    """Verifies Google login returns 400 when the Google API call fails and no fallback email is provided."""
+@override_settings(DEBUG=True, GOOGLE_OAUTH_CLIENT_ID='client-1')
+def test_google_login_rejects_transport_failure_in_debug(api_client, monkeypatch):
+    """Google login rejects transport failure even in development."""
 
     def fake_get(*_args, **_kwargs):
         raise auth_views.requests.RequestException('fail')
@@ -223,8 +225,8 @@ def test_google_login_requires_email_when_payload_missing(api_client, monkeypatc
         format='json',
     )
 
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()['error'] == 'Email is required'
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {'error': 'Invalid Google credential'}
 
 
 @pytest.mark.django_db
@@ -234,6 +236,7 @@ def test_google_login_creates_user_with_payload(api_client, monkeypatch):
     payload = {
         'aud': 'client-1',
         'email': 'google@example.com',
+        'email_verified': 'true',
         'given_name': 'Google',
         'family_name': 'User',
         'picture': 'pic',
@@ -273,6 +276,7 @@ def test_google_login_updates_existing_user_names(api_client, monkeypatch):
     payload = {
         'aud': 'client-1',
         'email': 'existing@example.com',
+        'email_verified': True,
         'given_name': 'Given',
         'family_name': 'Name',
     }
@@ -297,9 +301,9 @@ def test_google_login_updates_existing_user_names(api_client, monkeypatch):
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=True)
-def test_google_login_allows_debug_without_payload(api_client, monkeypatch):
-    """Verifies Google login succeeds in debug mode using the fallback email when the Google API call fails."""
+@override_settings(DEBUG=True, GOOGLE_OAUTH_CLIENT_ID='client-1')
+def test_google_login_rejects_debug_fallback_email(api_client, monkeypatch):
+    """An upstream failure cannot create an account from the requested email."""
 
     def fake_get(*_args, **_kwargs):
         return DummyResponse(status_code=500)
@@ -312,12 +316,13 @@ def test_google_login_allows_debug_without_payload(api_client, monkeypatch):
         format='json',
     )
 
-    assert response.status_code == status.HTTP_200_OK
-    assert response.json()['google_validated'] is False
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {'error': 'Invalid Google credential'}
+    assert get_user_model().objects.filter(email='debug@example.com').count() == 0
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=False)
+@override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
 def test_google_login_sanitizes_transport_failure(api_client, monkeypatch, caplog):
     """Transport failures retain a diagnostic without exposing the credential URL."""
     credential = 'SYNTHETIC_TRANSPORT_CREDENTIAL'
@@ -347,7 +352,7 @@ def test_google_login_sanitizes_transport_failure(api_client, monkeypatch, caplo
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=False)
+@override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
 def test_google_login_sanitizes_upstream_rejection(api_client, monkeypatch, caplog):
     """Upstream rejection logs only its status instead of the response body."""
     sentinel = 'SYNTHETIC_UPSTREAM_SECRET'
@@ -368,7 +373,7 @@ def test_google_login_sanitizes_upstream_rejection(api_client, monkeypatch, capl
 
 
 @pytest.mark.django_db
-@override_settings(DEBUG=False)
+@override_settings(DEBUG=False, GOOGLE_OAUTH_CLIENT_ID='client-1')
 def test_google_login_sanitizes_invalid_json(api_client, monkeypatch, caplog):
     """JSON failures preserve the response contract without logging exception text."""
     sentinel = 'SYNTHETIC_JSON_SECRET'
@@ -393,6 +398,99 @@ def test_google_login_sanitizes_invalid_json(api_client, monkeypatch, caplog):
     assert response.json()['error'] == 'Invalid Google credential'
     assert 'Google token validation failed: error_type=ValueError' in caplog.text
     assert sentinel not in caplog.text
+
+
+@pytest.fixture
+def google_victim(db):
+    """Create an existing staff account targeted by rejected Google requests."""
+    return get_user_model().objects.create_user(
+        email='victim@example.com', password='victim-password',
+        first_name='Original', last_name='Victim', is_staff=True,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('debug', [False, True])
+@pytest.mark.parametrize('claims', [
+    {'email_verified': True},
+    {'email': 123, 'email_verified': True},
+    {'email': '  ', 'email_verified': True},
+    {'email': 'victim@example.com', 'email_verified': False},
+    {'email': 'victim@example.com', 'email_verified': 'false'},
+    {'email': 'victim@example.com'},
+    {'email': 'victim@example.com', 'email_verified': 1},
+    {'email': 'victim@example.com', 'email_verified': 'TRUE'},
+])
+def test_google_login_rejects_invalid_identity(api_client, monkeypatch, google_victim, debug, claims):
+    """Invalid identity claims cannot authenticate the requested staff account."""
+    payload = {'aud': 'client-1', 'given_name': 'Changed', **claims}
+    password_before = google_victim.password
+    monkeypatch.setattr(auth_views.requests, 'get', lambda *args, **kwargs: DummyResponse(payload=payload))
+
+    with override_settings(DEBUG=debug, GOOGLE_OAUTH_CLIENT_ID='client-1'):
+        response = api_client.post(reverse('google_login'), {
+            'credential': 'synthetic-token', 'email': google_victim.email,
+        }, format='json')
+
+    google_victim.refresh_from_db()
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {'error': 'Invalid Google credential'}
+    assert get_user_model().objects.count() == 1
+    assert (google_victim.first_name, google_victim.last_name, google_victim.is_staff) == ('Original', 'Victim', True)
+    assert google_victim.password == password_before
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('payload', [[], 'not-an-object', 123])
+@override_settings(GOOGLE_OAUTH_CLIENT_ID='client-1')
+def test_google_login_rejects_non_object_payload(api_client, monkeypatch, google_victim, payload):
+    """A JSON value without identity claims cannot authenticate a requested account."""
+    monkeypatch.setattr(auth_views.requests, 'get', lambda *args, **kwargs: DummyResponse(payload=payload))
+
+    response = api_client.post(reverse('google_login'), {
+        'credential': 'synthetic-token', 'email': google_victim.email,
+    }, format='json')
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {'error': 'Invalid Google credential'}
+    assert get_user_model().objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('audience_setting', ['', ' ,  , '])
+def test_google_login_rejects_missing_client_config(api_client, monkeypatch, google_victim, audience_setting):
+    """No configured audience means no account can be authenticated by Google."""
+    payload = {'aud': 'client-1', 'email': google_victim.email, 'email_verified': True}
+    monkeypatch.setattr(auth_views.requests, 'get', lambda *args, **kwargs: DummyResponse(payload=payload))
+
+    with override_settings(GOOGLE_OAUTH_CLIENT_ID=audience_setting):
+        response = api_client.post(reverse('google_login'), {'credential': 'synthetic-token'}, format='json')
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {'error': 'Invalid Google client'}
+    assert get_user_model().objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('email_verified', [True, 'true'])
+@override_settings(GOOGLE_OAUTH_CLIENT_ID='client-1, client-2')
+def test_google_login_authenticates_payload_identity(api_client, monkeypatch, google_victim, email_verified):
+    """A verified Google account receives its own tokens despite a different requested email."""
+    payload = {'aud': 'client-2', 'email': '  GOOGLE@example.com  ', 'email_verified': email_verified}
+    monkeypatch.setattr(auth_views.requests, 'get', lambda *args, **kwargs: DummyResponse(payload=payload))
+
+    response = api_client.post(reverse('google_login'), {
+        'id_token': 'synthetic-token', 'email': google_victim.email,
+    }, format='json')
+
+    account = get_user_model().objects.get(email='google@example.com')
+    google_victim.refresh_from_db()
+    assert response.status_code == status.HTTP_200_OK
+    assert AccessToken(response.data['access'])['user_id'] == str(account.pk)
+    assert response.json()['user']['email'] == 'google@example.com'
+    assert response.json()['google_validated'] is True
+    assert response.json()['created'] is True
+    assert (google_victim.first_name, google_victim.last_name, google_victim.is_staff) == ('Original', 'Victim', True)
 
 
 @pytest.mark.django_db
