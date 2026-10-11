@@ -268,12 +268,14 @@ def test_media_admin_delete_queryset_preserves_unselected_owner(library_owners):
 
 
 @pytest.mark.django_db
-def test_media_admin_delete_queryset_cleans_last_owners(library_owners):
-    """Bulk admin deletion cleans a library after its last selected owners."""
+def test_media_admin_delete_queryset_cleans_last_owners(library_owners, django_capture_on_commit_callbacks):
+    """Bulk admin deletion removes media after the last selected owners' commit."""
     model, admin, library, attachment, first, second, _ = library_owners
     selected_ids = [first.pk, second.pk]
 
-    admin.delete_queryset(RequestFactory().post('/admin/'), model.objects.filter(pk__in=selected_ids))
+    with django_capture_on_commit_callbacks(execute=True):
+        admin.delete_queryset(RequestFactory().post('/admin/'), model.objects.filter(pk__in=selected_ids))
+        assert attachment.file.storage.exists(attachment.file.name)
 
     assert not model.objects.filter(pk__in=selected_ids).exists()
     assert not Library.objects.filter(pk=library.pk).exists()
