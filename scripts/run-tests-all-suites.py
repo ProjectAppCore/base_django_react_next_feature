@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -197,6 +198,24 @@ class _LiveProgress:
 
 
 @dataclass
+class SuiteInvocation:
+    """Capture the exact child process inputs before deciding whether to resume."""
+
+    command: list[str]
+    cwd: Path
+    env: dict[str, str]
+
+    def identity(self) -> dict[str, object]:
+        """Describe process inputs without persisting environment values."""
+        environment = json.dumps(self.env, sort_keys=True, separators=(",", ":"))
+        return {
+            "command": list(self.command),
+            "cwd": str(self.cwd.resolve()),
+            "environment_sha256": hashlib.sha256(environment.encode("utf-8")).hexdigest(),
+        }
+
+
+@dataclass
 class StepResult:
     name: str
     command: list[str]
@@ -206,6 +225,7 @@ class StepResult:
     output_tail: list[str] = field(default_factory=list)
     coverage: list[str] = field(default_factory=list)
     log_path: Path | None = None
+    identity: dict[str, object] | None = None
 
 
 RESUME_FILENAME = "last-run.json"
@@ -337,6 +357,7 @@ def resolve_resume_status(record: object) -> str:
 def select_suites_for_resume(
     suite_runners: Sequence[tuple[str, partial[StepResult]]],
     resume_state: dict[str, object] | None,
+    identities: dict[str, dict[str, object]],
 ) -> tuple[list[tuple[str, partial[StepResult]]], bool]:
     if not isinstance(resume_state, dict):
         return list(suite_runners), False
@@ -345,8 +366,20 @@ def select_suites_for_resume(
         return list(suite_runners), False
     selected: list[tuple[str, partial[StepResult]]] = []
     for name, runner in suite_runners:
-        status = resolve_resume_status(suites.get(name))
-        if status != "ok":
+        record = suites.get(name)
+        identity = record.get("identity") if isinstance(record, dict) else None
+        expected = identities.get(name)
+        valid = (
+            isinstance(identity, dict)
+            and isinstance(identity.get("command"), list)
+            and bool(identity["command"])
+            and all(isinstance(arg, str) for arg in identity["command"])
+            and isinstance(identity.get("cwd"), str)
+            and Path(identity["cwd"]).is_absolute()
+            and isinstance(identity.get("environment_sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", identity["environment_sha256"]) is not None
+        )
+        if resolve_resume_status(record) != "ok" or not valid or identity != expected:
             selected.append((name, runner))
     all_passed = len(selected) == 0 and len(suite_runners) > 0
     return selected, all_passed
@@ -361,6 +394,7 @@ def build_suite_summary(result: StepResult) -> dict[str, object]:
         "command": result.command,
         "timestamp": _timestamp(),
         "log_path": str(result.log_path) if result.log_path else None,
+        "identity": result.identity,
     }
 
 
@@ -729,6 +763,8 @@ def run_command(
     quiet_progress: Callable[[str], str | None] | None = None,
 ) -> StepResult:
     cmd_list = [str(item) for item in command]
+    invocation = SuiteInvocation(cmd_list, cwd.resolve(), dict(os.environ if env is None else env))
+    identity = invocation.identity()
     if not quiet:
         print("\n" + "=" * 80)
         print(f"Running step: {name}")
@@ -749,11 +785,11 @@ def run_command(
     try:
         process = subprocess.Popen(
             cmd_list,
-            cwd=cwd,
+            cwd=invocation.cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            env=env,
+            env=invocation.env,
         )
     except FileNotFoundError as exc:
         if log_file:
@@ -768,6 +804,7 @@ def run_command(
             status="failed",
             output_tail=[str(exc)],
             log_path=log_path,
+            identity=identity,
         )
 
     if process.stdout is None:
@@ -782,6 +819,7 @@ def run_command(
             status="failed",
             output_tail=["Failed to capture command output."],
             log_path=log_path,
+            identity=identity,
         )
 
     for line in process.stdout:
@@ -825,7 +863,57 @@ def run_command(
         output_tail=list(output_tail),
         coverage=coverage_lines,
         log_path=log_path,
+        identity=identity,
     )
+
+
+def prepare_backend_invocation(
+    backend_root: Path,
+    markers: str,
+    extra_args: Sequence[str],
+    show_coverage: bool,
+) -> SuiteInvocation:
+    """Prepare pytest arguments without modifying coverage data."""
+    coverage_root = resolve_backend_coverage_root(backend_root)
+    command = [
+        sys.executable, "-m", "pytest", f"--cov={coverage_root}",
+        "--cov-branch", "--override-ini=addopts=",
+    ]
+    if show_coverage:
+        command.append("--cov-report=term-missing")
+    if markers:
+        command.extend(["-m", markers])
+    command.extend(extra_args)
+    return SuiteInvocation(command, backend_root.resolve(), dict(os.environ))
+
+
+def prepare_unit_invocation(
+    frontend_root: Path,
+    extra_args: Sequence[str],
+    workers: str | None,
+    show_coverage: bool,
+) -> SuiteInvocation:
+    """Prepare Jest arguments with a captured working directory and environment."""
+    command = ["npm", "run", "test", "--"]
+    if show_coverage:
+        command.append("--coverage")
+    if workers:
+        command.append(f"--maxWorkers={workers}")
+    command.extend(extra_args)
+    return SuiteInvocation(command, frontend_root.resolve(), dict(os.environ))
+
+
+def prepare_e2e_invocation(
+    frontend_root: Path,
+    extra_args: Sequence[str],
+    workers: str | None,
+) -> SuiteInvocation:
+    """Prepare Playwright arguments with a captured working directory and environment."""
+    command = ["npx", "playwright", "test"]
+    if workers:
+        command.append(f"--workers={workers}")
+    command.extend(extra_args)
+    return SuiteInvocation(command, frontend_root.resolve(), dict(os.environ))
 
 
 def run_backend(
@@ -837,25 +925,17 @@ def run_backend(
     append_log: bool = False,
     run_id: str | None = None,
     show_coverage: bool = False,
+    invocation: SuiteInvocation | None = None,
 ) -> StepResult:
-    coverage_root = resolve_backend_coverage_root(backend_root)
-    backend_cmd: list[str] = [
-        sys.executable, "-m", "pytest",
-        f"--cov={coverage_root}",
-        "--cov-branch",
-        "--override-ini=addopts=",
-    ]
+    invocation = invocation or prepare_backend_invocation(backend_root, markers, extra_args, show_coverage)
     if show_coverage:
         erase_backend_coverage_data(backend_root)
-        backend_cmd.append("--cov-report=term-missing")
-    if markers:
-        backend_cmd.extend(["-m", markers])
-    backend_cmd.extend(extra_args)
 
     result = run_command(
         name="backend",
-        command=backend_cmd,
-        cwd=backend_root,
+        command=invocation.command,
+        cwd=invocation.cwd,
+        env=invocation.env,
         log_path=report_dir / "backend.log",
         capture_coverage=show_coverage,
         append_log=append_log,
@@ -878,18 +958,15 @@ def run_frontend_unit(
     append_log: bool = False,
     run_id: str | None = None,
     show_coverage: bool = False,
+    invocation: SuiteInvocation | None = None,
 ) -> StepResult:
-    unit_cmd = ["npm", "run", "test", "--"]
-    if show_coverage:
-        unit_cmd.append("--coverage")
-    if workers:
-        unit_cmd.append(f"--maxWorkers={workers}")
-    unit_cmd.extend(extra_args)
+    invocation = invocation or prepare_unit_invocation(frontend_root, extra_args, workers, show_coverage)
 
     result = run_command(
         name="frontend-unit",
-        command=unit_cmd,
-        cwd=frontend_root,
+        command=invocation.command,
+        cwd=invocation.cwd,
+        env=invocation.env,
         log_path=report_dir / "frontend-unit.log",
         capture_coverage=show_coverage,
         append_log=append_log,
@@ -911,19 +988,16 @@ def run_frontend_e2e(
     append_log: bool = False,
     run_id: str | None = None,
     show_coverage: bool = False,
+    invocation: SuiteInvocation | None = None,
 ) -> StepResult:
-    env = dict(os.environ)
-    playwright_cmd = ["npx", "playwright", "test"]
-    if workers:
-        playwright_cmd.append(f"--workers={workers}")
-    playwright_cmd.extend(extra_args)
+    invocation = invocation or prepare_e2e_invocation(frontend_root, extra_args, workers)
 
     result = run_command(
         name="frontend-e2e",
-        command=playwright_cmd,
-        cwd=frontend_root,
+        command=invocation.command,
+        cwd=invocation.cwd,
         log_path=report_dir / "frontend-e2e.log",
-        env=env,
+        env=invocation.env,
         capture_coverage=False,
         append_log=append_log,
         quiet=quiet,
@@ -991,8 +1065,12 @@ def main() -> int:
     run_id = create_run_id()
 
     suite_runners: list[tuple[str, partial[StepResult]]] = []
+    invocations: dict[str, SuiteInvocation] = {}
 
     if not args.skip_backend:
+        invocations["backend"] = prepare_backend_invocation(
+            backend_root, args.backend_markers, split_args(args.backend_args), show_coverage,
+        )
         suite_runners.append((
             "backend",
             partial(
@@ -1005,10 +1083,14 @@ def main() -> int:
                 append_log=append_log,
                 run_id=run_id,
                 show_coverage=show_coverage,
+                invocation=invocations["backend"],
             ),
         ))
 
     if not args.skip_unit:
+        invocations["frontend-unit"] = prepare_unit_invocation(
+            frontend_root, split_args(args.unit_args), args.unit_workers, show_coverage,
+        )
         suite_runners.append((
             "frontend-unit",
             partial(
@@ -1021,10 +1103,14 @@ def main() -> int:
                 append_log=append_log,
                 run_id=run_id,
                 show_coverage=show_coverage,
+                invocation=invocations["frontend-unit"],
             ),
         ))
 
     if not args.skip_e2e:
+        invocations["frontend-e2e"] = prepare_e2e_invocation(
+            frontend_root, split_args(args.e2e_args), args.e2e_workers,
+        )
         suite_runners.append((
             "frontend-e2e",
             partial(
@@ -1037,6 +1123,7 @@ def main() -> int:
                 append_log=append_log,
                 run_id=run_id,
                 show_coverage=show_coverage,
+                invocation=invocations["frontend-e2e"],
             ),
         ))
 
@@ -1050,7 +1137,10 @@ def main() -> int:
 
     resume_state = load_resume_state(resume_path) if args.resume else None
     if args.resume:
-        selected_suites, all_passed = select_suites_for_resume(suite_runners, resume_state)
+        selected_suites, all_passed = select_suites_for_resume(
+            suite_runners, resume_state,
+            {name: invocation.identity() for name, invocation in invocations.items()},
+        )
         if resume_state is not None and all_passed:
             print(
                 "Todas las suites ya pasaron. Si deseas ejecutarlas de nuevo, "
