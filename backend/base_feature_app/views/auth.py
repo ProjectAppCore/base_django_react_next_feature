@@ -141,23 +141,21 @@ def google_login(request):
     Google OAuth login endpoint.
     
     Expected data:
-    - email: str
-    - given_name: str (optional)
-    - family_name: str (optional)
-    - picture: str (optional)
+    - credential: str (id_token is also accepted)
     """
     credential = request.data.get('credential') or request.data.get('id_token')
 
     if not credential:
         return Response({'error': 'Google credential is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    email = request.data.get('email', '').strip().lower()
-    given_name = request.data.get('given_name', '').strip()
-    family_name = request.data.get('family_name', '').strip()
-    picture_url = request.data.get('picture', '')
+    if not isinstance(credential, str):
+        return Response({'error': 'Invalid Google credential'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    allowed_auds = [v.strip() for v in (settings.GOOGLE_OAUTH_CLIENT_ID or '').split(',') if v.strip()]
+    if not allowed_auds:
+        return Response({'error': 'Invalid Google client'}, status=status.HTTP_401_UNAUTHORIZED)
 
     payload = None
-    aud_mismatch = False
     try:
         tokeninfo = requests.get(
             'https://oauth2.googleapis.com/tokeninfo',
@@ -171,40 +169,30 @@ def google_login(request):
     except (requests.RequestException, ValueError) as exc:
         logger.warning('Google token validation failed: error_type=%s', type(exc).__name__)
 
-    if payload is not None:
-        aud = payload.get('aud', '')
-        allowed_auds = [v.strip() for v in (settings.GOOGLE_OAUTH_CLIENT_ID or '').split(',') if v.strip()]
-        if allowed_auds and aud not in allowed_auds:
-            logger.warning('Google aud mismatch. aud=%s allowed=%s', aud, allowed_auds)
-            aud_mismatch = True
-            payload = None
-
-    if payload is None and not settings.DEBUG:
-        if aud_mismatch:
-            return Response({'error': 'Invalid Google client'}, status=status.HTTP_401_UNAUTHORIZED)
+    if not isinstance(payload, dict):
         return Response({'error': 'Invalid Google credential'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    if payload is not None:
-        token_email = (payload.get('email') or '').strip().lower()
-        if token_email:
-            email = token_email
+    aud = payload.get('aud')
+    if not isinstance(aud, str) or aud not in allowed_auds:
+        logger.warning('Google token audience rejected')
+        return Response({'error': 'Invalid Google client'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        token_given = (payload.get('given_name') or '').strip()
-        token_family = (payload.get('family_name') or '').strip()
-        token_picture = payload.get('picture') or ''
+    email = payload.get('email')
+    email_verified = payload.get('email_verified')
+    given_name = payload.get('given_name') or ''
+    family_name = payload.get('family_name') or ''
+    if (
+        not isinstance(email, str)
+        or not email.strip()
+        or not (email_verified is True or email_verified == 'true')
+        or not isinstance(given_name, str)
+        or not isinstance(family_name, str)
+    ):
+        return Response({'error': 'Invalid Google credential'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        if token_given:
-            given_name = token_given
-        if token_family:
-            family_name = token_family
-        if token_picture:
-            picture_url = token_picture
-    
-    if not email:
-        return Response(
-            {'error': 'Email is required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    email = email.strip().lower()
+    given_name = given_name.strip()
+    family_name = family_name.strip()
     
     # Get or create user
     user, created = User.objects.get_or_create(
@@ -232,7 +220,7 @@ def google_login(request):
     # Generate tokens
     tokens = generate_auth_tokens(user)
     tokens['created'] = created
-    tokens['google_validated'] = payload is not None
+    tokens['google_validated'] = True
     
     return Response(tokens, status=status.HTTP_200_OK)
 
