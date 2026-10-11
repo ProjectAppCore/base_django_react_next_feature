@@ -118,7 +118,7 @@ def test_product_delete_preserves_shared_library(create_survivor):
 
 
 @pytest.mark.django_db
-def test_product_delete_cleans_library_after_last_owner():
+def test_product_delete_cleans_library_after_last_owner(django_capture_on_commit_callbacks):
     """Removing the final product cleans its formerly shared gallery."""
     library = Library.objects.create(title='Shared gallery')
     attachment = Attachment.objects.create(library=library, file=_placeholder_image(), rank=0)
@@ -126,7 +126,8 @@ def test_product_delete_cleans_library_after_last_owner():
     last = _create_product(library, title='Last')
     first.delete()
 
-    last.delete()
+    with django_capture_on_commit_callbacks(execute=True):
+        last.delete()
 
     assert not Library.objects.filter(pk=library.pk).exists()
     assert not Attachment.objects.filter(pk=attachment.pk).exists()

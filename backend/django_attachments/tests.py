@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 from io import BytesIO
 import os
+from tempfile import TemporaryDirectory
 
 from easy_thumbnails.files import get_thumbnailer
 from PIL import Image
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from .models import Library, Attachment
 
 
 class AttachmentModelTest(TestCase):
 	def setUp(self):
-		pass
+		media_root = self.enterContext(TemporaryDirectory())
+		self.enterContext(override_settings(MEDIA_ROOT=media_root))
 
 	def create_library(self, title='Test'):
 		library = Library(title=title)
@@ -145,8 +147,10 @@ class AttachmentModelTest(TestCase):
 		self.assertTrue(os.path.exists(attachment.file.path))
 		self.assertTrue(os.path.exists(thumbnail.path))
 
-		attachment.delete()
-		self.assertFalse(os.path.exists(attachment.file.path))
+		file_path = attachment.file.path
+		with self.captureOnCommitCallbacks(execute=True):
+			attachment.delete()
+		self.assertFalse(os.path.exists(file_path))
 		self.assertFalse(os.path.exists(thumbnail.path))
 
 	def test_update_library(self):
