@@ -10,25 +10,49 @@ import { useCartStore } from '@/lib/stores/cartStore';
 import { useProductStore } from '@/lib/stores/productStore';
 
 export default function ProductDetailPage() {
-  const fetchProduct = useProductStore((s) => s.fetchProduct);
-  const addToCart = useCartStore((s) => s.addToCart);
-  const [product, setProduct] = useState<Product | null>(null);
   const params = useParams<{ productId: string | string[] }>();
   const productIdParam = params?.productId;
   const productId = Array.isArray(productIdParam) ? productIdParam[0] : productIdParam;
   const numericProductId = Number(productId);
   const hasValidProductId = Number.isFinite(numericProductId);
-  const [loading, setLoading] = useState(hasValidProductId);
+
+  if (!hasValidProductId) return <ProductNotFound />;
+  return <ProductDetail key={numericProductId} productId={numericProductId} />;
+}
+
+function ProductNotFound() {
+  return (
+    <main className="max-w-6xl mx-auto px-6 py-12">
+      <p className="text-muted-foreground">Product not found.</p>
+      <Link href="/catalog" className="mt-4 inline-block text-sm text-foreground hover:underline">
+        Back to catalog
+      </Link>
+    </main>
+  );
+}
+
+function ProductDetail({ productId }: { productId: number }) {
+  const fetchProduct = useProductStore((s) => s.fetchProduct);
+  const addToCart = useCartStore((s) => s.addToCart);
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!hasValidProductId) return;
-
+    let active = true;
     void (async () => {
-      const data = await fetchProduct(numericProductId);
-      setProduct(data);
-      setLoading(false);
+      try {
+        const data = await fetchProduct(productId);
+        if (active) setProduct(data);
+      } catch {
+        if (active) setHasError(true);
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
-  }, [fetchProduct, hasValidProductId, numericProductId]);
+    return () => { active = false; };
+  }, [fetchProduct, productId, attempt]);
 
   if (loading) {
     return (
@@ -38,16 +62,30 @@ export default function ProductDetailPage() {
     );
   }
 
-  if (!product) {
+  if (hasError) {
     return (
       <main className="max-w-6xl mx-auto px-6 py-12">
-        <p className="text-muted-foreground">Product not found.</p>
-        <Link href="/catalog" className="mt-4 inline-block text-sm text-foreground hover:underline">
+        <p className="text-foreground font-semibold">Product unavailable</p>
+        <p className="mt-2 text-muted-foreground">Could not load this product. Please try again.</p>
+        <button
+          type="button"
+          className="mt-4 rounded-full bg-primary text-primary-foreground px-5 py-2.5 hover:bg-primary/90"
+          onClick={() => {
+            setLoading(true);
+            setHasError(false);
+            setAttempt((value) => value + 1);
+          }}
+        >
+          Retry
+        </button>
+        <Link href="/catalog" className="mt-4 block text-sm text-foreground hover:underline">
           Back to catalog
         </Link>
       </main>
     );
   }
+
+  if (!product) return <ProductNotFound />;
 
   const gallery = product.gallery_urls || [];
 

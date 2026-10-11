@@ -25,7 +25,7 @@ class EmailService:
 
         Args:
             user: User instance with email and first_name attributes.
-            code: 6-digit alphanumeric verification code.
+            code: Complete password-reset token.
 
         Returns:
             bool: True if the email was sent successfully, False otherwise.

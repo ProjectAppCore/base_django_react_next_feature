@@ -136,4 +136,71 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/.*forgot-password/);
     await expect(page.getByRole('heading', { name: 'Reset Password' })).toBeVisible();
   });
+
+  test('submits the complete recovery token', { tag: [...AUTH_FORGOT_PASSWORD_FORM, '@outcome:success'] }, async ({ page }) => {
+    const token = 'd4x5z6-0123456789abcdef0123456789abcdef';
+    await page.route('**/send_passcode/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Code sent successfully' }) })
+    );
+    await page.route('**/verify_passcode_and_reset_password/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Password reset successfully' }) })
+    );
+    await page.goto('/forgot-password');
+    await page.getByPlaceholder('Email').fill('recovery@example.invalid');
+    await page.getByRole('button', { name: 'Send verification code' }).click();
+    await page.getByRole('textbox', { name: 'Recovery code', exact: true }).fill(token);
+    await expect(page.getByRole('textbox', { name: 'Recovery code', exact: true })).toHaveValue(token);
+    await page.getByPlaceholder('New Password', { exact: true }).fill('new-password');
+    await page.getByPlaceholder('Confirm New Password').fill('new-password');
+    const submission = page.waitForRequest('**/verify_passcode_and_reset_password/');
+
+    await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+
+    expect((await submission).postDataJSON()).toEqual({
+      email: 'recovery@example.invalid', code: token, new_password: 'new-password',
+    });
+    await expect(page).toHaveURL(/.*sign-in/);
+  });
+
+  test('preserves the recovery token after rejection', { tag: [...AUTH_FORGOT_PASSWORD_FORM, '@outcome:error'] }, async ({ page }) => {
+    const token = 'd4x5z6-0123456789abcdef0123456789abcdef';
+    await page.route('**/send_passcode/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Code sent successfully' }) })
+    );
+    await page.route('**/verify_passcode_and_reset_password/', (route) =>
+      route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Invalid or expired code' }) })
+    );
+    await page.goto('/forgot-password');
+    await page.getByPlaceholder('Email').fill('recovery@example.invalid');
+    await page.getByRole('button', { name: 'Send verification code' }).click();
+    await page.getByRole('textbox', { name: 'Recovery code', exact: true }).fill(token);
+    await page.getByPlaceholder('New Password', { exact: true }).fill('new-password');
+    await page.getByPlaceholder('Confirm New Password').fill('new-password');
+
+    await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+
+    await expect(page.getByText('Invalid or expired code')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Recovery code', exact: true })).toHaveValue(token);
+    await expect(page).toHaveURL(/.*forgot-password/);
+  });
+
+
+  test('allows retrying a failed recovery email', { tag: [...AUTH_FORGOT_PASSWORD_FORM, '@outcome:failure'] }, async ({ page }) => {
+    const responses = [
+      { status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Failed to send email' }) },
+      { status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Code sent successfully' }) },
+    ];
+    await page.route('**/send_passcode/', (route) => route.fulfill(responses.shift()!));
+    await page.goto('/forgot-password');
+    await page.getByPlaceholder('Email').fill('recovery@example.invalid');
+
+    await page.getByRole('button', { name: 'Send verification code' }).click();
+
+    await expect(page.getByText('Failed to send email')).toBeVisible();
+    await expect(page.getByPlaceholder('Email')).toHaveValue('recovery@example.invalid');
+    await expect(page.getByRole('button', { name: 'Send verification code' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Send verification code' }).click();
+    await expect(page.getByRole('textbox', { name: 'Recovery code', exact: true })).toBeVisible();
+  });
+
 });

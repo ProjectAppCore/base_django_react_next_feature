@@ -1,9 +1,13 @@
 """
 Authentication utility functions.
 """
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.core.mail import send_mail
+import logging
+
 from django.conf import settings
+from django.core.mail import send_mail
+from rest_framework_simplejwt.tokens import RefreshToken
+
+logger = logging.getLogger(__name__)
 
 
 def generate_auth_tokens(user):
@@ -34,7 +38,7 @@ def send_password_reset_code(user, code):
     Send password reset code via email.
     
     :param user: User instance
-    :param code: 6-digit code
+    :param code: complete password-reset token
     """
     subject = 'Password Reset Code'
     message = f'''
@@ -61,8 +65,8 @@ The Team
             fail_silently=False,
         )
         return True
-    except Exception as e:
-        print(f"Error sending email: {e}")
+    except Exception as exc:  # noqa: BLE001 -- Preserve the generic boundary without exposing exception text.
+        logger.error('Password reset email failed: error_type=%s', type(exc).__name__)
         return False
 
 
@@ -96,6 +100,6 @@ The Team
             fail_silently=False,
         )
         return True
-    except Exception as e:
-        print(f"Error sending email: {e}")
+    except Exception as exc:  # noqa: BLE001 -- Preserve the generic boundary without exposing exception text.
+        logger.error('Verification email failed: error_type=%s', type(exc).__name__)
         return False
