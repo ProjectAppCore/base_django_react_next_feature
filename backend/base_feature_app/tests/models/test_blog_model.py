@@ -92,7 +92,7 @@ def test_blog_delete_preserves_shared_library(create_survivor):
 
 
 @pytest.mark.django_db
-def test_blog_delete_cleans_library_after_last_owner():
+def test_blog_delete_cleans_library_after_last_owner(django_capture_on_commit_callbacks):
     """Removing the final blog cleans its formerly shared library."""
     library = Library.objects.create(title='Shared image')
     attachment = Attachment.objects.create(library=library, file=_placeholder_image(), rank=0)
@@ -100,7 +100,8 @@ def test_blog_delete_cleans_library_after_last_owner():
     last = Blog.objects.create(title='Last', description='D', category='C', image=library)
     first.delete()
 
-    last.delete()
+    with django_capture_on_commit_callbacks(execute=True):
+        last.delete()
 
     assert not Library.objects.filter(pk=library.pk).exists()
     assert not Attachment.objects.filter(pk=attachment.pk).exists()

@@ -9,6 +9,7 @@ from django.db import models
 from django.db.models import F, Max, Subquery, OuterRef
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django_cleanup import cleanup
 from easy_thumbnails.fields import ThumbnailerField
 
 from .utils import parse_mimetype
@@ -79,6 +80,7 @@ class AttachmentQuerySet(models.QuerySet):
 		return self.filter(image_width__isnull=False)
 
 
+@cleanup.ignore
 class Attachment(TimestampModelMixin, models.Model):
 	objects = AttachmentQuerySet.as_manager()
 
