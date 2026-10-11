@@ -1,6 +1,6 @@
 # Ronda 5 — identidad Google, limpieza de adjuntos y reanudación de pruebas
 
-Fecha: 2026-10-11. Proyecto: `base_django_react_next_feature`, template sin despliegue. Base de diagnóstico: `65f2585e79d2361210dc5d422625b0708f0354e9`. Snapshot combinado de aplicación: `ad5659eff890d827faf73f90a1b49a6bc39acbf6`, integrado sin conflictos; no constituye aún la aceptación final con documentación.
+Fecha: 2026-10-11. Proyecto: `base_django_react_next_feature`, template sin despliegue. Base de diagnóstico: `65f2585e79d2361210dc5d422625b0708f0354e9`. Snapshot combinado de aplicación: `0595e5fc6bf081ec6182456633de68a40867fbeb`, integrado sin conflictos; no constituye aún la aceptación final con documentación.
 
 ## Selección y propietarios
 
@@ -9,7 +9,7 @@ Se aprobaron tres causas con beneficio demostrado. Cada dueño implementó aplic
 | Causa e ID oficial | Retorno / esfuerzo / riesgo | Dueño y snapshot revisado |
 |---|---|---|
 | Impedir JWT de una identidad aportada por el request sin validación Google — `I-S-6b24d6daacb6` | ALTO / BAJO / MEDIO | Seguridad: `14796e538d85ee845a82ebf8eea8acf6b398d27a` |
-| Conservar archivos referenciados cuando se revierte una operación — `I-O-dca4a3ae558d` | ALTO / MEDIO / MEDIO | Observabilidad: `b286e2300410cf43375b14e2793eb15baa3663a3` |
+| Conservar archivos referenciados cuando se revierte una operación — `I-O-dca4a3ae558d` | ALTO / MEDIO / MEDIO | Observabilidad: `739c8b1d147b9f3d7d1341f62ec99d29913fada5` |
 | No heredar el éxito de otra selección o entorno al reanudar pruebas — `I-M-bbefb9ec8008` | MEDIO / BAJO / BAJO | Mantenibilidad: `2d97e9afc0d3a40c149fb781c8b9b63cb2059638` |
 
 ## Contratos definitivos
@@ -26,7 +26,7 @@ Los tests de `backend/base_feature_app/tests/views/test_auth_endpoints.py` reemp
 
 La limpieza posterior al commit es best effort: un fallo de consulta o almacenamiento registra únicamente operación y clase de excepción, conserva el resultado confirmado en DB y permite continuar callbacks posteriores. No garantiza exclusión contra reattachment concurrente ni protege archivos compartidos entre aliases diferentes. No se incorpora una cola persistente de reintentos.
 
-Los tests nuevos están en `backend/base_feature_app/tests/models/test_attachment_cleanup.py`. Los casos existentes de producto/blog ejecutan explícitamente los callbacks que sus transacciones de prueba dejan pendientes. En `backend/django_attachments/tests.py`, el cambio queda limitado a imports, almacenamiento temporal en setup y ejecución del callback de borrado; se conserva el resto del archivo histórico, sin reformateo general.
+Los tests nuevos están en `backend/base_feature_app/tests/models/test_attachment_cleanup.py`. Los casos existentes de producto/blog y admin ejecutan explícitamente los callbacks que sus transacciones de prueba dejan pendientes. El borrado administrativo de los últimos dueños comprueba el archivo presente antes del callback y ausente después, conservando las cuatro aserciones finales sobre filas y archivo (`backend/base_feature_app/tests/utils/test_admin.py`). No requirió cambiar producción. En `backend/django_attachments/tests.py`, el cambio queda limitado a imports, almacenamiento temporal en setup y ejecución del callback de borrado; se conserva el resto del archivo histórico, sin reformateo general.
 
 ### Reanudación
 
@@ -36,13 +36,15 @@ La metadata conserva el digest del entorno, nunca sus valores. Directorio de rep
 
 ## Evidencia de los autores y aceptación conjunta
 
-QA leyó los JUnit regulares de los tres dueños: cero fallos, errores o skips en los siguientes lotes. Estos resultados pertenecen a sus implementaciones; no sustituyen la aceptación del commit combinado.
+QA leyó los JUnit regulares de los tres dueños: 131 casos, cero fallos, errores o skips en los siguientes lotes. Estos resultados pertenecen a sus implementaciones; no sustituyen la aceptación del commit combinado. Media conserva 37 casos ejecutados sobre `b286e2300410cf43375b14e2793eb15baa3663a3` y añade ocho administrativos sobre `739c8b1d147b9f3d7d1341f62ec99d29913fada5`; no se atribuyen los 45 a una ejecución única de autor.
 
 | Dueño | Casos ejecutados | Artefactos dentro de su worktree, bajo `test-results/improvement/ronda5/` |
 |---|---|---|
 | Seguridad | 34: 11 + 16 + 7 | `google-existing.xml`, `google-invalid-identity.xml`, `google-boundaries.xml` |
 | Mantenibilidad | 52: 18 + 18 + 16 | `resume-batch-1.xml`, `resume-batch-2.xml`, `resume-batch-3.xml` |
-| Observabilidad | 37: 17 + 20 | `media-regression-scoped.xml`, `media-existing-scoped.xml` |
+| Observabilidad | 45: 17 + 20 + 8 | `media-regression-scoped.xml`, `media-existing-scoped.xml`, `media-admin-fixed.xml` |
+
+El CI detectó dos expectativas administrativas anteriores al commit. El dueño reprodujo ambos fallos y ajustó solo el test que verifica los últimos dueños; los ocho casos focalizados del admin pasaron sin quitar aserciones. Evidencia: `media-admin-reproduce.xml` (2 fallos) y `media-admin-evidence.json`. Las 34 pruebas Google ya iniciadas sobre el combinado `62abfa1ef02a5d6855b55bbb0a3971720fd10d42` quedaron únicamente como preliminares, archivadas bajo `test-results/improvement/ronda5/preliminary-62abfa/`; ese SHA no fue aceptado ni sus resultados se mezclan con el manifest final.
 
 El Ruff complementario del vendor conserva 15 hallazgos preexistentes y cero nuevos; no se declara limpio globalmente. Los brutos y comparación están en `media-ruff-vendor-{base,scoped}.json` y `media-scoped-evidence.json`. Ese archivo no entra al AST gate por su ubicación y glob preexistentes: ejecución real y Ruff complementario no equivalen al gate semántico. No se debilitan reglas, config ni baseline para ocultar el límite.
 
