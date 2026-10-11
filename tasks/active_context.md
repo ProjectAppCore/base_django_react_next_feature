@@ -4,32 +4,24 @@
 
 ## Foco actual
 
-Cerrar la tercera ronda conservadora de mejora del template. El alcance es
-hacer obligatorio un quality gate completo en CI: Ruff instalado, docstrings
-conformes a las reglas existentes y un validador que rechaza reportes incompletos.
-Los PR #20 a #26 de dependencias y las rondas anteriores ya están integrados.
+La cuarta ronda conservadora implementó tres causas: reset mediante token fuerte, diagnóstico saneado de correo y detalle de producto recuperable. Snapshot de aplicación combinado revisado: `162d91be73ec83bc265c7de22c7fc9c17e44a270` (compartido `8fabd09`, seguridad `0707a6b`, producto `a85e09a`). Los tres casos E2E de recuperación ya están implementados. El resultado final de aceptación e integración se conserva en los artefactos ignorados y los PRs de esta ronda, sin convertir el cierre de sesión en deuda funcional del template.
 
 ## Decisiones de la ronda
 
-- QA implementa los tests y el validador; el orquestador conserva CI, tooling,
-  documentación e integración. Cada archivo tiene un único dueño.
-- `python scripts/validate_test_quality_report.py <reporte.json>` exige semántica
-  estricta, cero errores, Ruff/ESLint ejecutados y objetivos en las tres capas.
-  El código de salida del core por sí solo no acredita esa ejecución.
-- Ruff `0.16.4` también queda en `requirements-tools.txt`. No se modifica el
-  core distribuido, la baseline, las excepciones ni las reglas para aprobar.
-- La revisión completa inicial encontró 153 findings Ruff documentales en
-  21 archivos; esta deuda es prerrequisito para habilitar el control existente.
-- Las mejoras elegibles de doble carga de productos y diagnóstico de reset se
-  posponen hasta cerrar este control; no se descartan por bajo retorno.
-- Responsividad sigue sin matriz de cinco tamaños acreditada. La revisión
-  defensiva de seguridad fue acotada y no certifica todo el frente.
-- La excepción de auditoría npm existente tiene caducidad el 2026-10-24 y está
-  restringida a este repositorio. No se renueva ni se amplía en esta ronda.
+- Seguridad es dueña de modelos/auth, correo, formulario de recuperación y sus tests; observabilidad es dueña del detalle de producto y sus tests. QA coordina una única validación y los seis documentos aprobados; el orquestador conserva integración y Git externo.
+- Se mantiene `PasswordCode` y las APIs existentes; `code` pasa a 64 caracteres. El token estándar de Django está ligado a la contraseña y dura menos de 15 minutos. Emisión/reset marcan usadas las filas pendientes bajo lock de la cuenta; no se añaden cuatro campos de cuotas a User.
+- La migración 0006 invalida códigos antiguos pendientes y es irreversible. La comprobación histórica independiente pasó en SQLite en memoria sobre `8fabd093539af6056dfeb4200aa6cd6337442996`: columna 64 e `IrreversibleError` antes de reducirla.
+- Errores de correo conservan retorno `False` y registran únicamente operación y clase de excepción. El guard del reset conserva su respuesta genérica y emite una señal saneada; no se añade telemetría adicional.
+- Producto distingue 404 de fallo temporal, permite Retry manual y descarta respuestas de una ruta anterior. El test que exigía inexistencia ante un 500 fue reemplazado.
+- Deduplicar `fetchProducts` sigue siendo elegible, pero pendiente por el límite de tres causas. No se amplía a blogs. Responsividad permanece sin certificación de cinco tamaños.
+- El gate previo ya acreditó Ruff/ESLint, cero errores e infraerrores, baseline vacía, 61 advertencias preexistentes y 55 casos CLI; esa causa no se reabre.
+- MySQL 8.0.46 fue rechazado por Django 6.1.1. Se preparó un scratch nuevo 8.4.11, sin red ni MySQLX, con conexión Django/mysqlclient y correo en memoria verificados. Los tres tests concurrentes pasaron en MySQL sobre `af3d6aa` (3 casos, 159,86 s); no sustituyen la ejecución combinada del SHA final. El E2E final sigue pendiente.
+- Tradeoff aprobado: el generador estándar puede producir el mismo texto para usuario/estado/segundo idénticos. Se garantiza una fila activa y un consumo, sin prometer valores únicos por emisión. Cambiar la contraseña invalida el token; no se incorpora nonce, subclase ni generador propio.
+- No se introducen límites persistentes de emisión/verificación ni se certifica protección contra abuso de correo. La excepción npm existente no se renueva ni amplía.
 
 ## Decisiones activas
 
-- Tests backend SIEMPRE con `backend/venv` y sqlite (`db=mysql` del registry es fallback, no dato).
+- Tests backend con venv explícito y DB aislada; SQLite para reglas, MySQL 8.4 o posterior para locks concurrentes. La ronda usa `/tmp/base-template-ronda2-venv`; nunca el venv compartido ni `.env`.
 - Autochequeo de gate SIEMPRE con `--junk-severity=error --external-lint run` (paridad con hook/CI).
 - Jest: paths con corchetes vía `--runTestsByPath` (los args posicionales son regex).
 - Sin condicionales en bodies de tests (Regla 7): la fake data seedeada es contrato del entorno; un test sin data debe fallar, no saltearse.
@@ -55,15 +47,12 @@ Los PR #20 a #26 de dependencias y las rondas anteriores ya están integrados.
 - Cada uno de los 13 commits funcionales esperó los cinco checks verdes antes
   del siguiente.
 
-## Próximos pasos
+## Seguimiento
 
-1. Cerrar la ronda con CI completo verde, `$merge-queue` y comprobación
-   `$all-in-base --check-only`; conservar evidencias del SHA probado.
-2. Vigilar soporte upstream de ESLint 10 en los plugins Next y de la API
-   TypeScript 7 en Next/typescript-eslint para retirar los puentes.
-3. Adoptar Node 26/npm 12/@types 26 como una sola frontera de runtime futura.
-4. Migrar `EMAIL_*` a `MAILERS` antes de Django 7.
-5. Retomar únicamente mejoras con evidencia: doble carga de productos,
-   fallo interno de reset sin señal y detalle de producto que confunde un fallo
-   temporal con inexistencia. No añadir refactors cosméticos para llenar una ronda.
-6. Registrar `db:`/`branch:` en projects.yml del toolkit.
+La implementación de las tres causas y sus tests está completa en el snapshot indicado. La migración histórica y los tres casos concurrentes MySQL focalizados ya pasaron; el veredicto de QA/CI sobre el SHA final se registra en los reportes ignorados y PRs de esta ronda. El orquestador conduce el cierre externo; QA no publica ni modifica el toolkit.
+
+Pendientes propios del template, fuera del cupo de ronda 4:
+
+1. Retomar deduplicación de productos solo en una ronda posterior, con presupuesto de un GET por solicitud concurrente; no ampliar a blogs.
+2. Medir la matriz responsive de cinco tamaños antes de proponer cambios; sigue sin certificación.
+3. Vigilar soporte upstream de ESLint 10 y TypeScript 7; migrar `EMAIL_*` a `MAILERS` antes de Django 7. Estos pendientes no se amplían en esta ronda.

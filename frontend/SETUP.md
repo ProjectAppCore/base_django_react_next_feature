@@ -161,8 +161,11 @@ npm run test:all          # Unit coverage + E2E
 - Link to sign in
 
 ### Forgot Password (`/forgot-password`)
-- Step 1: Enter email → Receive 6-digit code
-- Step 2: Enter code + new password → Reset complete
+- Paso 1: introducir el email y recibir un token de recuperación.
+- Paso 2: pegar el token completo (hasta 64 caracteres, con letras y separadores), introducir contraseñas coincidentes de al menos ocho caracteres y enviar.
+- El token caduca a los 15 minutos; pedir otro marca como usadas las filas anteriores y cambiar la contraseña consume las pendientes. Las rutas API y el campo `code` se conservan.
+- El generador estándar de Django puede repetir el mismo texto para el mismo usuario, estado y segundo. Se garantiza una fila activa y un solo reset, no un valor distinto por envío. Cambiar la contraseña invalida el token del estado anterior.
+- Los códigos de seis dígitos anteriores se invalidan mediante la migración 0006; es necesario solicitar un token nuevo.
 
 ---
 
@@ -245,4 +248,13 @@ lsof -ti:8000 | xargs -r kill -9
 
 ---
 
-**Last Updated:** February 2026
+**Last Updated:** 2026-10-10
+
+
+## Validación aislada de la ronda 4
+
+Django 6.1.1 exige MySQL 8.4 o posterior. SQLite permite validar reglas y migraciones, pero no demuestra la serialización de `select_for_update`.
+
+La validación de recuperación y producto utiliza un worktree propio, datos sintéticos, correo en memoria y `PYTHON_DOTENV_DISABLED=1`; no reutiliza `.env`, bases reales ni servidores de los puertos habituales. Las pruebas se seleccionan por archivo/caso: máximo veinte casos por ejecución, tres comandos por ciclo y dos archivos E2E. Las rutas con corchetes de Jest se pasan mediante `--runTestsByPath`.
+
+Para producto, una respuesta 404 muestra inexistencia; un fallo temporal muestra **Product unavailable** y permite **Retry**. La auditoría E2E del SHA final debe comprobar ambos estados y la recuperación en una app real aislada. Los cinco tamaños responsive requieren su propia medición; Desktop Chrome no los certifica.
