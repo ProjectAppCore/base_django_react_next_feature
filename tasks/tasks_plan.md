@@ -1,6 +1,22 @@
 # Tasks Plan — Base Django React Next Feature
 
-> Memory Bank · actualizado 2026-10-10 (ronda 4 del template). Los conteos históricos conservan la fecha de su medición.
+> Memory Bank · actualizado 2026-10-11 (ronda 5 del template). Los conteos históricos conservan la fecha de su medición.
+
+## Ronda 5 — tres causas aprobadas
+
+Base: `65f2585e79d2361210dc5d422625b0708f0354e9`. Aplicación integrada sin conflictos: `ad5659eff890d827faf73f90a1b49a6bc39acbf6`. Implementación y pruebas de autor completas; aceptación conjunta con documentación y CI del SHA combinado registrados aparte en artefactos ignorados/PRs, sin presumir verde futuro ni convertir el cierre externo en deuda funcional.
+
+| Causa / ID oficial | Snapshot revisado | Pruebas de autor leídas por QA |
+|---|---|---|
+| Google: identidad exclusiva del payload validado, sin fallback DEBUG — `I-S-6b24d6daacb6` | `14796e538d85ee845a82ebf8eea8acf6b398d27a` | 34 casos, cero fallos/errores/skips |
+| Media: limpieza tras commit del alias correcto, rollback conserva archivos — `I-O-dca4a3ae558d` | `b286e2300410cf43375b14e2793eb15baa3663a3` | 17 regresiones + 20 existentes, cero fallos/errores/skips |
+| Resume: misma invocación argv/cwd/SHA-256 del entorno para omitir una suite — `I-M-bbefb9ec8008` | `2d97e9afc0d3a40c149fb781c8b9b63cb2059638` | 52 casos, cero fallos/errores/skips |
+
+Los dueños conservan aplicación/tests; QA conserva cuatro documentos y coordina una única aceptación backend+gate. No cambia frontend, mapa de flujos, configuración global ni migraciones. Resume no acredita frescura del código, datos, dependencias o servicios. La limpieza postcommit es best effort y no cubre reattachment concurrente o archivos compartidos entre aliases.
+
+Vendor: cambio mínimo en imports/setup temporal/callback de borrado; sigue fuera del AST gate por ubicación preexistente. Ruff complementario conserva 15 hallazgos anteriores, cero nuevos y `global_clean=false`. No se amplía configuración ni baseline para ocultarlos. El gate focal backend no sustituye el validator del proyecto que requiere las tres capas y Ruff/ESLint.
+
+Pendientes de producto/metodología: dos causas de rendimiento elegibles fuera del cupo; responsive `needs-evidence` sin matriz ejecutada; MySQL CI diferido MEDIO/MEDIO/BAJO; abuso SMTP sin cuotas acreditadas y excepción npm que vence el 2026-10-24. Persistencia temporal de sesión MEDIO/MEDIO/MEDIO queda descartada. Detalle y evidencia: `docs/audits/improvement-ronda5-20261011.md`.
 
 ## Ronda 4 — tres causas aprobadas
 
