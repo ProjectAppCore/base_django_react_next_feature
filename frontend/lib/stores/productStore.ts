@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { isAxiosError } from 'axios';
 
 import type { Product } from '@/lib/types';
 import { api } from '@/lib/services/http';
@@ -31,11 +32,15 @@ export const useProductStore = create<ProductState>((set) => ({
     set({ loading: true, error: null });
     try {
       const response = await api.get(`products/${productId}/`);
-      set({ loading: false });
       return response.data as Product;
     } catch (e) {
-      set({ error: 'Could not load product. Is the backend running?', loading: false });
-      return null;
+      if (isAxiosError(e) && e.response?.status === 404) {
+        return null;
+      }
+      set({ error: 'Could not load product. Please try again.' });
+      throw e;
+    } finally {
+      set({ loading: false });
     }
   },
   clearError: () => set({ error: null }),
