@@ -1,0 +1,7 @@
+interface:
+  display_name: "Vpn Connect"
+  short_description: "Conecta ESTE host a la VPN del fleet de punta a punta y..."
+  default_prompt: "Use $vpn-connect to handle this task with its documented workflow."
+
+policy:
+  allow_implicit_invocation: true

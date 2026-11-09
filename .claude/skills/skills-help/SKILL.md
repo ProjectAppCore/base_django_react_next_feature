@@ -79,10 +79,10 @@ scope_override() {
   case "$1" in
     all-projects|incident)                                        echo "🌐" ;;
     full-audit|server-diagnostic|git-status-report|vps-cleanup)   echo "🖥️🌐" ;;
-    tailscale-connect|init-fleet|bootstrap-ssh-fleet|bootstrap-tailscale-fleet|sync-ai-ecosystems) echo "🖥️" ;;
+    vpn-connect|init-fleet|bootstrap-ssh-fleet|bootstrap-vpn-fleet|sync-ai-ecosystems) echo "🖥️" ;;
     migrate-project)                                              echo "🔧🌐" ;;
     mailbox-maintenance)                                          echo "✉️" ;;
-    dev-up|dev-down)                                              echo "💻" ;;
+    dev-up|dev-down|codex-orchestrate)                            echo "💻" ;;
     human|where-are-we)                                           echo "—" ;;
     *)                                                            echo "" ;;   # derivar
   esac
@@ -90,7 +90,7 @@ scope_override() {
 # Modo default: ✎ = muta de entrada. Todo lo demás deriva a ✓ (check/read-only).
 mode_override() {
   case "$1" in
-    git-commit|git-sync|merge-when-green|pr-green|merge-queue|all-projects|integrate-new-project|deploy-and-check|dev-up|dev-down|tailscale-connect|client-report|migrate-project) echo "✎" ;;
+    git-commit|git-sync|merge-when-green|pr-green|merge-queue|all-projects|integrate-new-project|deploy-and-check|dev-up|dev-down|vpn-connect|client-report|migrate-project|codex-orchestrate) echo "✎" ;;
     *) echo "✓" ;;
   esac
 }
@@ -181,10 +181,10 @@ Con los datos crudos de Phase 1 (y Phase 2 si `--all`), Claude arma la salida:
    - **Mejora transversal** (improvement-pass, security-pass, maintainability-pass, observability-pass, perf-pass, responsive-pass, vuln-audit)
    - **QA & tests** (qa, test-audit, test-quality-gate, coverage ×3, e2e-user-flows-check, fix-broken-tests, new-feature-checklist, playwright-validation, fake-data-refresh)
    - **Git & fleet** (git-sync, git-commit, git-status-report, merge-when-green, pr-green, merge-queue, all-in-base, all-projects, full-audit, deploy-and-check)
-   - **Bootstrap & conectividad** (init-fleet, bootstrap-ssh-fleet, bootstrap-tailscale-fleet, tailscale-connect, sync-ai-ecosystems)
+   - **Bootstrap & conectividad** (init-fleet, bootstrap-ssh-fleet, bootstrap-vpn-fleet, vpn-connect, sync-ai-ecosystems)
    - **Servidores & incidentes** (server-diagnostic, incident, migrate-project, integrate-new-project, vps-cleanup)
    - **Entorno & dev local** (dev-up, dev-down, methodology-setup)
-   - **Planning & desarrollo** (plan, plan-task, implement, debug, debugme)
+   - **Planning & desarrollo** (plan, plan-task, implement, codex-orchestrate, debug, debugme)
    - **Contenido & reportes** (client-report, user-walkthrough, human, where-are-we, repo-cleanup, skills-audit, skills-help)
    - **Buzones** (mailbox-maintenance)
    - **Otras** (cualquiera que no encaje — nunca dejes una skill afuera)

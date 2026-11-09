@@ -1,6 +1,6 @@
 ---
-name: tailscale-connect
-description: "Conecta ESTE host al tailnet del fleet de punta a punta y verifica que el fleet sea REALMENTE alcanzable: instala/enablea tailscaled si falta, corre `tailscale up --ssh` (con --hostname en VPS), captura la URL de login y te la muestra en la respuesta para que la autorices en el browser, verifica el nodo (status + IP 100.x + ssh cap) y además sondea una sesión `tailscale ssh` real contra un peer para detectar el *check mode* — la re-auth por browser que NO se ve en `tailscale status` y que frena la primera operación cross-VPS. Nodo conectado con check mode pendiente NO es verde: devuelve el link. Idempotente: si el nodo ya está conectado no re-autentica, pero el probe corre igual. Complementa a [[bootstrap-tailscale-fleet]] (onboarding/audit/registry)."
+name: vpn-connect
+description: "Conecta ESTE host a la VPN del fleet de punta a punta y verifica que el fleet sea REALMENTE alcanzable: instala/enablea el daemon de la VPN si falta, corre `<cli-vpn> up --ssh` (con --hostname en VPS), captura la URL de login y te la muestra en la respuesta para que la autorices en el browser, verifica el nodo (status + IP 100.x + ssh cap) y además sondea una sesión `<cli-vpn> ssh` real contra un peer para detectar el *check mode* — la re-auth por browser que NO se ve en `<cli-vpn> status` y que frena la primera operación cross-VPS. Nodo conectado con check mode pendiente NO es verde: devuelve el link. Idempotente: si el nodo ya está conectado no re-autentica, pero el probe corre igual. Complementa a [[bootstrap-vpn-fleet]] (onboarding/audit/registry)."
 allowed-tools: Bash, AskUserQuestion
 argument-hint: "[--check (sólo diagnóstico read-only)] [--no-ssh-probe (no sondea el alcance al fleet)]"
 ---
@@ -10,15 +10,15 @@ argument-hint: "[--check (sólo diagnóstico read-only)] [--no-ssh-probe (no son
 Conecta **el host actual** al tailnet del fleet de punta a punta y **te devuelve
 el link de login en la respuesta** para que lo autorices en el browser, luego
 verifica que la conexión quedó arriba. Es el complemento operativo de
-[[bootstrap-tailscale-fleet]]: aquél *imprime* el comando `tailscale up` y delega
+[[bootstrap-vpn-fleet]]: aquél *imprime* el comando `tailscale up` y delega
 el OAuth; **este skill lo corre, scrapea la URL, espera tu aprobación y verifica**.
 
 > **⚠️ Cómo invocar**:
-> - `/tailscale-connect` → conecta este host (o, si el nodo ya está conectado,
+> - `/vpn-connect` → conecta este host (o, si el nodo ya está conectado,
 >   salta directo al probe de alcance al fleet).
-> - `/tailscale-connect --check` → diagnóstico read-only (Phase 0 + Phase 4), no
+> - `/vpn-connect --check` → diagnóstico read-only (Phase 0 + Phase 4), no
 >   conecta ni re-autentica, pero SÍ sondea el *check mode*.
-> - `/tailscale-connect --no-ssh-probe` → sólo el estado local del nodo; el
+> - `/vpn-connect --no-ssh-probe` → sólo el estado local del nodo; el
 >   alcance al fleet queda sin verificar (y se dice en el reporte).
 > - Opera **siempre sobre el host donde corre la sesión** (identificado por
 >   `hostname -s`). No corre trabajo en otros VPS; el único contacto con un peer
@@ -35,8 +35,8 @@ en fleet/headless/cron — el OAuth exige al operador en el browser.
 
 | label | description | preview |
 |---|---|---|
-| Conectar este host (Recommended) | conecta el nodo si hace falta y verifica el alcance real al fleet; si el nodo ya está conectado no re-autentica, sólo sondea | `/tailscale-connect` |
-| --check | verificar sin mutar nada: estado local + probe del *check mode* | `/tailscale-connect --check` |
+| Conectar este host (Recommended) | conecta el nodo si hace falta y verifica el alcance real al fleet; si el nodo ya está conectado no re-autentica, sólo sondea | `/vpn-connect` |
+| --check | verificar sin mutar nada: estado local + probe del *check mode* | `/vpn-connect --check` |
 
 **Qué NO se pregunta:** el `--hostname` del `tailscale up` lo decide Phase 0 según el
 host, nunca el operador. **Tampoco se pregunta si sondear el fleet**: el probe es el
@@ -51,11 +51,11 @@ tipea, no se ofrece.
   `tailscale up` a mano y copiar la URL de la terminal.
 
 Para **auditar** el tailnet, **registrar** el nodo en `expected-nodes.yml`, o el
-onboarding completo bimodal, usá [[bootstrap-tailscale-fleet]] / [[init-fleet]].
+onboarding completo bimodal, usá [[bootstrap-vpn-fleet]] / [[init-fleet]].
 
-## Diferencia con [[bootstrap-tailscale-fleet]]
+## Diferencia con [[bootstrap-vpn-fleet]]
 
-| Aspecto | tailscale-connect (este) | bootstrap-tailscale-fleet |
+| Aspecto | vpn-connect (este) | bootstrap-vpn-fleet |
 |---|---|---|
 | Corre `tailscale up` | **Sí** (background + captura URL) | No, sólo lo imprime |
 | Muestra el link en la respuesta | **Sí** | No |
@@ -132,7 +132,7 @@ hosts del fleet sudo suele ser passwordless — los scripts de bootstrap lo asum
      `tailscale status --self --json | grep -q '"https://tailscale.com/cap/ssh"'`
 3. Next steps a sugerir:
    - Si el nodo **no** está en `config/tailscale/expected-nodes.yml`:
-     `/bootstrap-tailscale-fleet --add-self` para registrarlo.
+     `/bootstrap-vpn-fleet --add-self` para registrarlo.
    - (VPS) recordatorio manual: *Disable key expiry* en el admin console
      (https://login.tailscale.com/admin/machines) — el Free plan no expone API.
 
@@ -150,7 +150,7 @@ Sin esta fase el skill reporta 🟢 «conectado» y minutos después la primera
 operación cross-VPS (propagación, barrido, hop a otro clon) se frena pidiendo el
 link — que es exactamente lo que el operador quería saber al principio.
 **Preferimos entregar el link ahora y reconectar, antes que un verde que no
-habilita lo que el operador va a hacer.** Caso real 2026-08-18: `/tailscale-connect`
+habilita lo que el operador va a hacer.** Caso real 2026-08-18: `/vpn-connect`
 dio 🟢 al inicio de la sesión y `propagate-toolkit-commit.sh` salió 75 una hora
 después.
 
@@ -222,7 +222,7 @@ tailscale status --self --json | grep -q '"https://tailscale.com/cap/ssh"' && ec
   no implica «SSH autorizado»: son autorizaciones distintas. Si Phase 4 no corrió
   o no dio verde, el reporte lo dice y el veredicto no es 🟢.
 - **No toca** el registry (`expected-nodes.yml`) ni el admin console — eso es de
-  [[bootstrap-tailscale-fleet]]. Sólo instala/enablea/autentica el `tailscaled`
+  [[bootstrap-vpn-fleet]]. Sólo instala/enablea/autentica el `tailscaled`
   local.
 - Identificá el host ANTES de decidir `--hostname` (regla CLAUDE.md "identificar
   el host antes de llamar a Tailscale").
@@ -246,18 +246,18 @@ Tras el reporte, si la sesión es interactiva y NO hubo flags explícitos
 
 | Opción (label) | description (costo/efecto) | preview (comando exacto) |
 |---|---|---|
-| Re-verificar conexión | re-corre el diagnóstico read-only (status + IP 100.x + ssh cap) | `/tailscale-connect --check` |
-| Registrar este nodo en el registry (dry-run primero) | preview del alta en expected-nodes.yml; el `--add-self` real commitea + pushea | `/bootstrap-tailscale-fleet --add-self --dry-run` |
+| Re-verificar conexión | re-corre el diagnóstico read-only (status + IP 100.x + ssh cap) | `/vpn-connect --check` |
+| Registrar este nodo en el registry (dry-run primero) | preview del alta en expected-nodes.yml; el `--add-self` real commitea + pushea | `/bootstrap-vpn-fleet --add-self --dry-run` |
 
 ## Output final
 
 Reportar siguiendo [[_output-protocol]]. Plantilla específica de esta skill:
 
-🟢 tailscale-connect OK — <host> conectado Y fleet alcanzable (IP 100.x, nodo <nombre>, probe SSH ✅)
-⏸️ tailscale-connect — pausa manual pendiente — URL de login mostrada, esperando OAuth del operador
+🟢 vpn-connect OK — <host> conectado Y fleet alcanzable (IP 100.x, nodo <nombre>, probe SSH ✅)
+⏸️ vpn-connect — pausa manual pendiente — URL de login mostrada, esperando OAuth del operador
    (dos causas: el `tailscale up` de Phase 2, o el *check mode* de Phase 4 con el nodo YA conectado)
-🔴 tailscale-connect — N error(es), revisar arriba — install/daemon falló o verificación no pasó
-⏭️ tailscale-connect — alcance al fleet NO verificado — `--no-ssh-probe` o sin peers online
+🔴 vpn-connect — N error(es), revisar arriba — install/daemon falló o verificación no pasó
+⏭️ vpn-connect — alcance al fleet NO verificado — `--no-ssh-probe` o sin peers online
 
 | Dimensión | Estado | Detalle |
 |---|---|---|
@@ -274,14 +274,14 @@ como «conectado, todo listo».
 
 ## Next steps (si aplica)
 - (manual, operador) abrir la URL de login y autorizar con la cuenta del fleet.
-- (tras autorizar) re-correr `/tailscale-connect --check` para confirmar que el
+- (tras autorizar) re-correr `/vpn-connect --check` para confirmar que el
   probe pasa a ✅ antes de lanzar una operación cross-VPS larga.
-- `/bootstrap-tailscale-fleet --add-self` — registrar el nodo en el repo.
+- `/bootstrap-vpn-fleet --add-self` — registrar el nodo en el repo.
 - (admin console) *Disable key expiry* si es un VPS.
 
 ## Referencias
 
-- Skill de onboarding/audit/registry: [[bootstrap-tailscale-fleet]]
+- Skill de onboarding/audit/registry: [[bootstrap-vpn-fleet]]
 - Entry-point de host nuevo: [[init-fleet]]
 - Diagnóstico standalone: [`scripts/diagnostics/tailscale-fleet-check.sh`](../../scripts/diagnostics/tailscale-fleet-check.sh)
 - Patrón de captura de URL: [`scripts/maintenance/propagate-toolkit-commit.sh`](../../scripts/maintenance/propagate-toolkit-commit.sh)

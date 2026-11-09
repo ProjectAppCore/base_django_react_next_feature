@@ -1,7 +1,0 @@
-interface:
-  display_name: "Tailscale Connect"
-  short_description: "Conecta ESTE host al tailnet del fleet de punta a punta y..."
-  default_prompt: "Use $tailscale-connect to handle this task with its documented workflow."
-
-policy:
-  allow_implicit_invocation: true
