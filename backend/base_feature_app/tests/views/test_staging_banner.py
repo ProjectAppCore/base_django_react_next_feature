@@ -94,7 +94,7 @@ def test_staging_banner_exposes_contact_details(api_client, banner):
 
     body = response.json()
     assert body['contact_whatsapp'] == '+57 323 8122373'
-    assert body['contact_email'] == 'team@projectapp.co'
+    assert body['contact_email'] == 'contact@example.com'
 
 
 @pytest.mark.django_db

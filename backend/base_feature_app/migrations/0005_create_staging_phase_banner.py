@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
                 ('design_duration_days', models.PositiveIntegerField(default=5)),
                 ('development_duration_days', models.PositiveIntegerField(default=10)),
                 ('contact_whatsapp', models.CharField(default='+57 323 8122373', max_length=20)),
-                ('contact_email', models.EmailField(default='team@projectapp.co', max_length=254)),
+                ('contact_email', models.EmailField(default='contact@example.com', max_length=254)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
             ],
             options={

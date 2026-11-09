@@ -29,7 +29,7 @@ class StagingPhaseBanner(models.Model):
     design_duration_days = models.PositiveIntegerField(default=5)
     development_duration_days = models.PositiveIntegerField(default=10)
     contact_whatsapp = models.CharField(max_length=20, default='+57 323 8122373')
-    contact_email = models.EmailField(default='team@projectapp.co')
+    contact_email = models.EmailField(default='contact@example.com')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
